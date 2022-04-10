@@ -13,6 +13,8 @@ from rlgym.utils.action_parsers.discrete_act import DiscreteAction
 
 from rocket_learn.rollout_generator.redis_rollout_generator import RedisRolloutWorker
 
+import os
+
 
 # ROCKET-LEARN ALWAYS EXPECTS A BATCH DIMENSION IN THE BUILT OBSERVATION
 class ExpandAdvancedObs(AdvancedObs):
@@ -45,7 +47,7 @@ if __name__ == "__main__":
 
     # LINK TO THE REDIS SERVER YOU SHOULD HAVE RUNNING (USE THE SAME PASSWORD YOU SET IN THE REDIS
     # CONFIG)
-    r = Redis(host="127.0.0.1", password="you_better_use_a_password")
+    r = Redis(host="127.0.0.1", username="user1", password=os.environ["redis_user1_key"])
 
 
     # LAUNCH ROCKET LEAGUE AND BEGIN TRAINING

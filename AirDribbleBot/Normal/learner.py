@@ -10,51 +10,51 @@ from redis import Redis
 
 from rlgym.utils.obs_builders.advanced_obs import AdvancedObs
 from rlgym.utils.gamestates import PlayerData, GameState
-from rlgym.utils.reward_functions.default_reward import DefaultReward
+from rewards import anneal_rewards_fn
+from rlgym_tools.extra_action_parsers.kbm_act import KBMAction
 from rlgym.utils.action_parsers.discrete_act import DiscreteAction
 
 from rocket_learn.agent.actor_critic_agent import ActorCriticAgent
+from rocket_learn.agent.kbm_policy import KBMPolicy
 from rocket_learn.agent.discrete_policy import DiscretePolicy
 from rocket_learn.ppo import PPO
 from rocket_learn.rollout_generator.redis_rollout_generator import RedisRolloutGenerator
+from rocket_learn.utils.util import KBMSplitLayer, ExpandAdvancedObs
 from rocket_learn.utils.util import SplitLayer
 
 
-# ROCKET-LEARN ALWAYS EXPECTS A BATCH DIMENSION IN THE BUILT OBSERVATION
-class ExpandAdvancedObs(AdvancedObs):
-    def build_obs(self, player: PlayerData, state: GameState, previous_action: numpy.ndarray) -> Any:
-        obs = super(ExpandAdvancedObs, self).build_obs(player, state, previous_action)
-        return numpy.expand_dims(obs, 0)
+from Constants import *
 
 
 if __name__ == "__main__":
-    """
-    
-    Starts up a rocket-learn learner process, which ingests incoming data, updates parameters
-    based on results, and sends updated model parameters out to the workers
-    
-    """
-
-    # ROCKET-LEARN USES WANDB WHICH REQUIRES A LOGIN TO USE. YOU CAN SET AN ENVIRONMENTAL VARIABLE
-    # OR HARDCODE IT IF YOU ARE NOT SHARING YOUR SOURCE FILES
     wandb.login(key=os.environ["WANDB_KEY"])
-    logger = wandb.init(project="demo", entity="kaiyotech")
-    logger.name = "DEFAULT_LEARNER_EXAMPLE"
+    logger = wandb.init(project="ABAD", entity="kaiyotech")
+    logger.name = "DefaultLogging"
 
-    # LINK TO THE REDIS SERVER YOU SHOULD HAVE RUNNING (USE THE SAME PASSWORD YOU SET IN THE REDIS
-    # CONFIG)
     redis = Redis(username="user1", password=os.environ["redis_user1_key"])
+
+    # hyperparams---------
+    gamma = 1 - (T_STEP / TIME_HORIZON)
+    gae_lambda = 0.95
+    learning_rate_critic = 1e-4
+    learning_rate_actor = 1e-4
+    ent_coef = 0.01
+    vf_coef = 1.
+    target_steps = 1_000_000
+    batch_size = 100_000
+    minibatch_size = 20_000
+    n_bins = 3
+    n_epochs = 25
 
     # ENSURE OBSERVATION, REWARD, AND ACTION CHOICES ARE THE SAME IN THE WORKER
     def obs():
         return ExpandAdvancedObs()
 
     def rew():
-        return DefaultReward()
+        return anneal_rewards_fn()
 
     def act():
-        return DiscreteAction()
-
+        return DiscreteAction()  # KBMAction(n_bins=N_BINS)
 
     # THE ROLLOUT GENERATOR CAPTURES INCOMING DATA THROUGH REDIS AND PASSES IT TO THE LEARNER.
     # -save_every SPECIFIES HOW OFTEN OLD VERSIONS ARE SAVED TO REDIS. THESE ARE USED FOR TRUESKILL
@@ -89,27 +89,26 @@ if __name__ == "__main__":
     ), split)
 
     optim = torch.optim.Adam([
-        {"params": actor.parameters(), "lr": 5e-5},
-        {"params": critic.parameters(), "lr": 5e-5}
+        {"params": actor.parameters(), "lr": learning_rate_actor},
+        {"params": critic.parameters(), "lr": learning_rate_critic}
     ])
 
-    # PPO REQUIRES AN ACTOR/CRITIC AGENT
     agent = ActorCriticAgent(actor=actor, critic=critic, optimizer=optim)
-
 
     alg = PPO(
         rollout_gen,
         agent,
-        ent_coef=0.01,
-        n_steps=1_000_000,
-        batch_size=20_000,
-        minibatch_size=10_000,
-        epochs=10,
-        gamma=599 / 600,
+        ent_coef=ent_coef,
+        n_steps=target_steps,  # target steps per rollout?
+        batch_size=batch_size,
+        minibatch_size=minibatch_size,
+        epochs=n_epochs,
+        gamma=gamma,
+        gae_lambda=gae_lambda,
+        vf_coef=vf_coef,
         logger=logger,
+        device="cuda",
     )
 
-    # BEGIN TRAINING. IT WILL CONTINUE UNTIL MANUALLY STOPPED
-    # -iterations_per_save SPECIFIES HOW OFTEN CHECKPOINTS ARE SAVED
-    # -save_dir SPECIFIES WHERE
+    # SPECIFIES HOW OFTEN CHECKPOINTS ARE SAVED
     alg.run(iterations_per_save=10, save_dir="checkpoint_save_directory")
