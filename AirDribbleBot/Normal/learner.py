@@ -14,12 +14,10 @@ from rewards import anneal_rewards_fn
 from rlgym_tools.extra_action_parsers.kbm_act import KBMAction
 
 from rocket_learn.agent.actor_critic_agent import ActorCriticAgent
-from rocket_learn.agent.kbm_policy import KBMPolicy
 from rocket_learn.agent.discrete_policy import DiscretePolicy
 from rocket_learn.ppo import PPO
 from rocket_learn.rollout_generator.redis_rollout_generator import RedisRolloutGenerator
-from rocket_learn.utils.util import KBMSplitLayer, ExpandAdvancedObs
-from rocket_learn.utils.util import SplitLayer
+from rocket_learn.utils.util import ExpandAdvancedObs, SplitLayer
 
 
 from Constants import *
@@ -78,7 +76,7 @@ if __name__ == "__main__":
         Linear(256, 1)
     )
 
-    actor = KBMPolicy(Sequential(
+    actor = DiscretePolicy(Sequential(
         Linear(state_dim, 256),
         ReLU(),
         Linear(256, 256),
