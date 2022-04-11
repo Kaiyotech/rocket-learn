@@ -12,7 +12,6 @@ from rlgym.utils.obs_builders.advanced_obs import AdvancedObs
 from rlgym.utils.gamestates import PlayerData, GameState
 from rewards import anneal_rewards_fn
 from rlgym_tools.extra_action_parsers.kbm_act import KBMAction
-from rlgym.utils.action_parsers.discrete_act import DiscreteAction
 
 from rocket_learn.agent.actor_critic_agent import ActorCriticAgent
 from rocket_learn.agent.kbm_policy import KBMPolicy
@@ -54,18 +53,18 @@ if __name__ == "__main__":
         return anneal_rewards_fn()
 
     def act():
-        return DiscreteAction()  # KBMAction(n_bins=N_BINS)
+        return KBMAction()  # KBMAction(n_bins=N_BINS)
 
     # THE ROLLOUT GENERATOR CAPTURES INCOMING DATA THROUGH REDIS AND PASSES IT TO THE LEARNER.
     # -save_every SPECIFIES HOW OFTEN OLD VERSIONS ARE SAVED TO REDIS. THESE ARE USED FOR TRUESKILL
     # COMPARISON AND TRAINING AGAINST PREVIOUS VERSIONS
     rollout_gen = RedisRolloutGenerator(redis, obs, rew, act,
                                         logger=logger,
-                                        save_every=50000)
+                                        save_every=10)
 
     # ROCKET-LEARN EXPECTS A SET OF DISTRIBUTIONS FOR EACH ACTION FROM THE NETWORK, NOT
     # THE ACTIONS THEMSELVES. SEE network_setup.readme.txt FOR MORE INFORMATION
-    split = (3, 3, 3, 3, 3, 2, 2, 2)
+    split = (3, 3, 2, 2, 2)
     total_output = sum(split)
 
     # TOTAL SIZE OF THE INPUT DATA
@@ -79,7 +78,7 @@ if __name__ == "__main__":
         Linear(256, 1)
     )
 
-    actor = DiscretePolicy(Sequential(
+    actor = KBMPolicy(Sequential(
         Linear(state_dim, 256),
         ReLU(),
         Linear(256, 256),

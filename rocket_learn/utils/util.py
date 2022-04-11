@@ -156,6 +156,18 @@ class SplitLayer(nn.Module):
         return torch.split(x, self.splits, dim=-1)
 
 
+class KBMSplitLayer(nn.Module):
+    def __init__(self, splits=None):
+        super().__init__()
+        if splits is not None:
+            self.splits = splits
+        else:
+            self.splits = (3,) * 2 + (2,) * 3
+
+    def forward(self, x):
+        return torch.split(x, self.splits, dim=-1)
+
+
 def encode_gamestate(state: GameState):
     state_vals = [0, state.blue_score, state.orange_score]
     state_vals += state.boost_pads.tolist()

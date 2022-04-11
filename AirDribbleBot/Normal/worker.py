@@ -24,25 +24,25 @@ from rlgym_tools.extra_state_setters.augment_setter import AugmentSetter
 
 if __name__ == "__main__":
     streamer_mode = False
+    game_speed = 100
     if len(sys.argv) > 1:
         if sys.argv[1] == 'STREAMER':
             streamer_mode = True
+            game_speed = 1
     match = Match(
-        game_speed=100,
+        game_speed=game_speed,
         self_play=True,
         team_size=1,
         state_setter=AugmentSetter(WallDribble(),
                                    shuffle_within_teams=True,
                                    swap_front_back=False,
-                                   swap_teams=False
                                    ),
         obs_builder=ExpandAdvancedObs(),
-        # action_parser=KBMAction(n_bins=N_BINS),
-        action_parser=DiscreteAction(),
+        action_parser=KBMAction(),
         terminal_conditions=[TimeoutCondition(round(10 // T_STEP)),
                              GoalScoredCondition()],
         reward_function=anneal_rewards_fn(),
     )
 
     r = Redis(host="127.0.0.1", username="user1", password=os.environ["redis_user1_key"])
-    RedisRolloutWorker(r, "ABADv1", match, past_version_prob=0, streamer_mode=streamer_mode).run()
+    RedisRolloutWorker(r, "ABADv1", match, past_version_prob=0.2, streamer_mode=streamer_mode).run()
