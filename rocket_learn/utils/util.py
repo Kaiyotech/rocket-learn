@@ -187,10 +187,13 @@ def encode_gamestate(state: GameState):
     return state_vals
 
 
+# TODO AdvancedObs should be supported by default, use stack instead of cat
 class ExpandAdvancedObs(AdvancedObs):
     def build_obs(self, player: PlayerData, state: GameState, previous_action: np.ndarray) -> Any:
-        obs = super(ExpandAdvancedObs, self).build_obs(player, state, previous_action)
-        return np.expand_dims(obs, 0)
+        return np.reshape(
+            super(ExpandAdvancedObs, self).build_obs(player, state, previous_action),
+            (1, -1)
+        )
 
 
 def probability_NvsM(team1_ratings, team2_ratings, env=None):
