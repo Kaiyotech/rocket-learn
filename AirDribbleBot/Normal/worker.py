@@ -2,6 +2,7 @@ from typing import Any
 import numpy
 import sys
 import os
+import torch
 
 from redis import Redis
 
@@ -30,6 +31,7 @@ class ExpandAdvancedObs(AdvancedObs):
 
 
 if __name__ == "__main__":
+    torch.set_num_threads(1)
     streamer_mode = False
     game_speed = 100
     if len(sys.argv) > 1:
@@ -48,8 +50,14 @@ if __name__ == "__main__":
         action_parser=KBMAction(),
         terminal_conditions=[TimeoutCondition(round(10 // T_STEP)),
                              GoalScoredCondition()],
-        reward_function=anneal_rewards_fn(),
+        reward_function=anneal_rewards_fn()
     )
 
     r = Redis(host="127.0.0.1", username="user1", password=os.environ["redis_user1_key"])
-    RedisRolloutWorker(r, "ABADv1", match, past_version_prob=0.2, streamer_mode=streamer_mode).run()
+    RedisRolloutWorker(r,
+                       "ABADv1",
+                       match,
+                       past_version_prob=0.2,
+                       streamer_mode=streamer_mode,
+                       send_gamestates=False,
+                       ).run()

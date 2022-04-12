@@ -31,24 +31,26 @@ class ExpandAdvancedObs(AdvancedObs):
 
 
 if __name__ == "__main__":
+    config = dict(
+        gamma=1 - (T_STEP / TIME_HORIZON),
+        gae_lambda=0.95,
+        learning_rate_critic=1e-4,
+        learning_rate_actor=1e-4,
+        ent_coef=0.01,
+        vf_coef=1.,
+        target_steps=1_000_000,
+        batch_size=200_000,
+        minibatch_size=100_000,
+        n_bins=3,
+        n_epochs=25,
+        iterations_per_save=10
+    )
+    run_id = "3825dsfe"
     wandb.login(key=os.environ["WANDB_KEY"])
-    logger = wandb.init(project="ABAD", entity="kaiyotech")
-    logger.name = "DefaultLogging"
+    logger = wandb.init(dir="wandb_store", name="ABADv1", project="ABAD", entity="kaiyotech", id=run_id, config=config)
+    logger.name = "run2"
 
     redis = Redis(username="user1", password=os.environ["redis_user1_key"])
-
-    # hyperparams---------
-    gamma = 1 - (T_STEP / TIME_HORIZON)
-    gae_lambda = 0.95
-    learning_rate_critic = 1e-4
-    learning_rate_actor = 1e-4
-    ent_coef = 0.01
-    vf_coef = 1.
-    target_steps = 1_000_000
-    batch_size = 100_000
-    minibatch_size = 20_000
-    n_bins = 3
-    n_epochs = 25
 
     # ENSURE OBSERVATION, REWARD, AND ACTION CHOICES ARE THE SAME IN THE WORKER
     def obs():
@@ -65,7 +67,7 @@ if __name__ == "__main__":
     # COMPARISON AND TRAINING AGAINST PREVIOUS VERSIONS
     rollout_gen = RedisRolloutGenerator(redis, obs, rew, act,
                                         logger=logger,
-                                        save_every=10)
+                                        save_every=logger.config.iterations_per_save)
 
     # ROCKET-LEARN EXPECTS A SET OF DISTRIBUTIONS FOR EACH ACTION FROM THE NETWORK, NOT
     # THE ACTIONS THEMSELVES. SEE network_setup.readme.txt FOR MORE INFORMATION
@@ -93,8 +95,8 @@ if __name__ == "__main__":
     ), split)
 
     optim = torch.optim.Adam([
-        {"params": actor.parameters(), "lr": learning_rate_actor},
-        {"params": critic.parameters(), "lr": learning_rate_critic}
+        {"params": actor.parameters(), "lr": logger.config.learning_rate_actor},
+        {"params": critic.parameters(), "lr": logger.config.learning_rate_critic}
     ])
 
     agent = ActorCriticAgent(actor=actor, critic=critic, optimizer=optim)
@@ -102,17 +104,17 @@ if __name__ == "__main__":
     alg = PPO(
         rollout_gen,
         agent,
-        ent_coef=ent_coef,
-        n_steps=target_steps,  # target steps per rollout?
-        batch_size=batch_size,
-        minibatch_size=minibatch_size,
-        epochs=n_epochs,
-        gamma=gamma,
-        gae_lambda=gae_lambda,
-        vf_coef=vf_coef,
+        ent_coef=logger.config.ent_coef,
+        n_steps=logger.config.target_steps,  # target steps per rollout?
+        batch_size=logger.config.batch_size,
+        minibatch_size=logger.config.minibatch_size,
+        epochs=logger.config.n_epochs,
+        gamma=logger.config.gamma,
+        gae_lambda=logger.config.gae_lambda,
+        vf_coef=logger.config.vf_coef,
         logger=logger,
         device="cuda",
     )
 
     # SPECIFIES HOW OFTEN CHECKPOINTS ARE SAVED
-    alg.run(iterations_per_save=10, save_dir="checkpoint_save_directory")
+    alg.run(iterations_per_save=logger.config.iterations_per_save, save_dir="checkpoint_save_directory")
