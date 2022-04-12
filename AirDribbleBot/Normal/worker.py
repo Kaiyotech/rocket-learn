@@ -22,6 +22,13 @@ from rewards import anneal_rewards_fn
 from rlgym_tools.extra_state_setters.augment_setter import AugmentSetter
 
 
+# ROCKET-LEARN ALWAYS EXPECTS A BATCH DIMENSION IN THE BUILT OBSERVATION
+class ExpandAdvancedObs(AdvancedObs):
+    def build_obs(self, player: PlayerData, state: GameState, previous_action: numpy.ndarray) -> Any:
+        obs = super(ExpandAdvancedObs, self).build_obs(player, state, previous_action)
+        return numpy.expand_dims(obs, 0)
+
+
 if __name__ == "__main__":
     streamer_mode = False
     game_speed = 100

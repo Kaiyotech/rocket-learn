@@ -23,6 +23,13 @@ from rocket_learn.utils.util import ExpandAdvancedObs, SplitLayer
 from Constants import *
 
 
+# ROCKET-LEARN ALWAYS EXPECTS A BATCH DIMENSION IN THE BUILT OBSERVATION
+class ExpandAdvancedObs(AdvancedObs):
+    def build_obs(self, player: PlayerData, state: GameState, previous_action: numpy.ndarray) -> Any:
+        obs = super(ExpandAdvancedObs, self).build_obs(player, state, previous_action)
+        return numpy.expand_dims(obs, 0)
+
+
 if __name__ == "__main__":
     wandb.login(key=os.environ["WANDB_KEY"])
     logger = wandb.init(project="ABAD", entity="kaiyotech")
