@@ -10,7 +10,7 @@ from redis import Redis
 
 from rlgym.utils.obs_builders.advanced_obs import AdvancedObs
 from rlgym.utils.gamestates import PlayerData, GameState
-from rewards import anneal_rewards_fn
+from rewards import anneal_rewards_fn, MyRewardFunction
 from rlgym_tools.extra_action_parsers.kbm_act import KBMAction
 
 from rocket_learn.agent.actor_critic_agent import ActorCriticAgent
@@ -45,10 +45,9 @@ if __name__ == "__main__":
         n_epochs=25,
         iterations_per_save=10
     )
-    run_id = "3825dsfe"
+    run_id = "3825dsff"
     wandb.login(key=os.environ["WANDB_KEY"])
     logger = wandb.init(dir="wandb_store", name="ABADv1", project="ABAD", entity="kaiyotech", id=run_id, config=config)
-    logger.name = "run2"
 
     redis = Redis(username="user1", password=os.environ["redis_user1_key"])
 
@@ -57,7 +56,7 @@ if __name__ == "__main__":
         return ExpandAdvancedObs()
 
     def rew():
-        return anneal_rewards_fn()
+        return MyRewardFunction
 
     def act():
         return KBMAction()  # KBMAction(n_bins=N_BINS)
@@ -115,6 +114,8 @@ if __name__ == "__main__":
         logger=logger,
         device="cuda",
     )
+
+    alg.load("checkpoint_save_directory/ABAD_1649783664.876484/ABAD_120/checkpoint.pt")
 
     # SPECIFIES HOW OFTEN CHECKPOINTS ARE SAVED
     alg.run(iterations_per_save=logger.config.iterations_per_save, save_dir="checkpoint_save_directory")

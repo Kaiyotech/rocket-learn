@@ -96,7 +96,6 @@ if __name__ == "__main__":
     # PPO REQUIRES AN ACTOR/CRITIC AGENT
     agent = ActorCriticAgent(actor=actor, critic=critic, optimizer=optim)
 
-
     alg = PPO(
         rollout_gen,
         agent,

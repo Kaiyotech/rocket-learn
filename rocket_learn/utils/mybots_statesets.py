@@ -10,6 +10,69 @@ import math
 DEG_TO_RAD = 3.14159265 / 180
 
 
+class GroundAirDribble(StateSetter):
+    def reset(self, state_wrapper: StateWrapper):
+        rng = np.random.default_rng()
+
+        car_attack = state_wrapper.cars[0]
+        car_defend = None
+        for car_y in state_wrapper.cars:
+            if car_y.team_num == ORANGE_TEAM:
+                car_defend = car_y
+        orange_fix = 1
+        if rand.choice([0, 1]) and len(state_wrapper.cars) > 1:
+            for car_i in state_wrapper.cars:
+                if car_i.team_num == ORANGE_TEAM:
+                    car_attack = car_i
+                    car_defend = state_wrapper.cars[0]  # blue is always 0
+                    orange_fix = -1
+                    continue
+
+        x_choice = rand.choice([0, 2]) - 1
+
+        rand_x = x_choice * rng.uniform(0, 3000)
+        rand_y = rng.uniform(-2000, 2000)
+        rand_z = 17
+        desired_car_pos = [rand_x, rand_y, rand_z]  # x, y, z
+        desired_yaw = (orange_fix * 90 + x_choice * orange_fix * (rng.uniform(5, 15))) * DEG_TO_RAD
+        desired_pitch = 0
+        desired_roll = 0
+        desired_rotation = [desired_pitch, desired_yaw, desired_roll]
+
+        car_attack.set_pos(*desired_car_pos)
+        car_attack.set_rot(*desired_rotation)
+        car_attack.boost = 100
+
+        car_attack.set_lin_vel(250 * x_choice, 900 * orange_fix, 0)
+        car_attack.set_ang_vel(0, 0, 0)
+
+        # put ball in front of car coming towards car at low speed
+
+        ball_x = rand_x
+        state_wrapper.ball.set_pos(x=ball_x, y=rand_y + orange_fix * rng.uniform(300, 700),
+                                   z=0)
+        state_wrapper.ball.set_lin_vel(-80 * x_choice, -800 * orange_fix, 0)
+        state_wrapper.ball.set_ang_vel(0, 0, 0)
+
+        # Loop over every car in the game, skipping 1 since we already did it
+        for car in state_wrapper.cars:
+            if car.id == car_attack.id:
+                pass
+
+            # put the defense car in front of net
+            elif car.id == car_defend.id:
+                car.set_pos(rng.uniform(-1600, 1600), orange_fix * rng.uniform(3800, 5000), 0)
+                car.set_rot(0, rng.uniform(-180, 180) * (np.pi / 180), 0)
+                car.boost = 0.33
+                continue
+
+            # rest of the cars are random
+            else:
+                car.set_pos(rng.uniform(-1472, 1472), rng.uniform(-1984, 1984), 0)
+                car.set_rot(0, rng.uniform(-180, 180) * (np.pi / 180), 0)
+                car.boost = 0.33
+
+
 class WallDribble(StateSetter):
     def reset(self, state_wrapper: StateWrapper):
         rng = np.random.default_rng()
