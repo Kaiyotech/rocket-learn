@@ -27,7 +27,6 @@ from rlgym.utils import ObsBuilder, RewardFunction
 from rlgym.utils.action_parsers import ActionParser
 from trueskill import Rating, rate, SIGMA
 import plotly.graph_objs as go
-from scipy import signal
 
 from rlgym.envs import Match
 from rlgym.gamelaunch import LaunchPreference
@@ -38,8 +37,6 @@ from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGen
 from rocket_learn.utils import util
 from rocket_learn.utils.batched_obs_builder import BatchedObsBuilder
 from rocket_learn.utils.util import encode_gamestate, probability_NvsM, softmax
-
-from functools import partial
 
 # Constants for consistent key lookup
 QUALITIES = "qualities"
@@ -79,36 +76,6 @@ def _serialize_model(mdl):
 def _unserialize_model(buf):
     agent = pickle.loads(buf)
     return agent
-
-
-def _redis_retry_func(func, redis: Redis, max_retry=10):
-    interval = 2
-    for retry in range(1, max_retry + 1):
-        try:
-            return func()
-        except RetryException as e:
-            print(f"Failed to call {func.func}, in retry({retry}/{max_retry})")
-        redis.close()
-        redis = Redis(username="user1", password=os.environ["redis_user1_key"])
-        time.sleep(interval)
-        interval = interval ** 1.5
-    else:
-        raise RetryException(e, max_retry)
-
-
-# Define Exception class for retry
-class RetryException(Exception):
-    u_str = "Exception ({}) raised after {} tries."
-
-    def __init__(self, exp, max_retry):
-        self.exp = exp
-        self.max_retry = max_retry
-
-    def __unicode__(self):
-        return self.u_str.format(self.exp, self.max_retry)
-
-    def __str__(self):
-        return self.__unicode__()
 
 
 def encode_buffers(buffers: List[ExperienceBuffer], strict=False, send_rewards=True):
@@ -226,13 +193,11 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             clear=True,
             mmr_min_episode_length=150,
             max_age=0,
-            min_sigma=0,
-            smooth_ts=False,
+            min_sigma=0
     ):
         self.tot_bytes = 0
         self.redis = redis
         self.logger = logger
-        self.smooth_ts = smooth_ts
 
         # TODO saving/loading
         if clear:
@@ -268,20 +233,18 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
     def _update_ratings(self, name, versions, buffers, latest_version, result):
         ratings = []
         relevant_buffers = []
-        versions = list(filter('na'.__ne__, versions))
         for version, buffer in itertools.zip_longest(versions, buffers):
-            if isinstance(version, int) and version < 0:
+            if version == 'na':
+                continue  # no need to rate pretrained agents
+            elif version < 0:
                 if abs(version - latest_version) <= self.max_age:
                     relevant_buffers.append(buffer)
                     self.contributors[name] += buffer.size()
                 else:
                     return []
             else:
-                try:
-                    rating = Rating(*_unserialize(self.redis.lindex(QUALITIES, version))))
-                    ratings.append(rating)
-                except ConnectionError as e:
-                    print(e)
+                rating = Rating(*_unserialize(self.redis.lindex(QUALITIES, version)))
+                ratings.append(rating)
 
         # Only old versions, calculate MMR
         if len(ratings) == len(versions) and len(buffers) == 0:
@@ -302,32 +265,26 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 # Also limit sigma to its lower bound
                 avg_rating = Rating(sum(r.mu for r in ratings) / len(ratings),
                                     max(sum(r.sigma ** 2 for r in ratings) ** 0.5 / len(ratings), self.min_sigma))
-                try:
-                    _redis_retry_func(partial(self.redis.lset, QUALITIES, version, _serialize(tuple(avg_rating))))
-                except RetryException as e:
-                    print(e)
+                self.redis.lset(QUALITIES, version, _serialize(tuple(avg_rating)))
 
         return relevant_buffers
 
     def generate_rollouts(self) -> Iterator[ExperienceBuffer]:
         while True:
-            try:
-                latest_version = int(_redis_retry_func(partial(self.redis.get, VERSION_LATEST)))
-                data = _redis_retry_func(partial(self.redis.blpop, ROLLOUTS))[1]
-                self.tot_bytes += len(data)
-                res = self._process_rollout(
-                    data, latest_version,
-                    self.obs_build_func, self.rew_func_factory, self.act_parse_factory,
-                    self.max_age
-                )
-                if res is not None:
-                    buffers, versions, uuid, name, result = res
-                    #versions = [version for version in versions if version != 'na']  # don't track humans or hardcoded
+            latest_version = int(self.redis.get(VERSION_LATEST))
+            data = self.redis.blpop(ROLLOUTS)[1]
+            self.tot_bytes += len(data)
+            res = self._process_rollout(
+                data, latest_version,
+                self.obs_build_func, self.rew_func_factory, self.act_parse_factory,
+                self.max_age
+            )
+            if res is not None:
+                buffers, versions, uuid, name, result = res
+                # versions = [version for version in versions if version != 'na']  # don't track humans or hardcoded
 
-                    relevant_buffers = self._update_ratings(name, versions, buffers, latest_version, result)
-                    yield from relevant_buffers
-            except RetryException as e:
-                print(e)
+                relevant_buffers = self._update_ratings(name, versions, buffers, latest_version, result)
+                yield from relevant_buffers
 
         # futures = []
         # cpus = psutil.cpu_count(logical=False)
@@ -354,7 +311,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         #                 CloudpickleWrapper(self.act_parse_factory)
         #             ))
 
-    def _plot_ratings(self, ratings, smooth=False):
+    def _plot_ratings(self, ratings):
         if len(ratings) <= 0:
             return
         mus = np.array([r.mu for r in ratings])
@@ -390,30 +347,9 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
 
         fig.update_layout(title="Rating", xaxis_title="Iteration", yaxis_title="TrueSkill")
 
-        if smooth:
-            fig_smooth = go.Figure([
-                go.Scatter(
-                    x=x,
-                    y=signal.savgol_filter(y,
-                                           43,  # window size used for filtering
-                                           5),  # order of fitted polynomial
-                    line=dict(color='rgb(175, 79, 219)'),
-                    mode='lines',
-                    name='Smoothed',
-                    showlegend=False,
-                )
-            ])
-
-            fig_smooth.update_layout(title="Smoothed Rating", xaxis_title="Iteration", yaxis_title="TrueSkill")
-
-            self.logger.log({
-                "qualities": fig,
-                "qualities_smooth": fig_smooth,
-            }, commit=False)
-        else:
-            self.logger.log({
-                "qualities": fig,
-            }, commit=False)
+        self.logger.log({
+            "qualities": fig,
+        }, commit=False)
 
     def _add_opponent(self, agent):
         # Add to list
@@ -440,7 +376,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             "contributors": wandb.Table(columns=["name", "steps"], data=self.contributors.most_common())},
             commit=False
         )
-        self._plot_ratings([Rating(*_unserialize(v)) for v in self.redis.lrange(QUALITIES, 0, -1)], self.smooth_ts)
+        self._plot_ratings([Rating(*_unserialize(v)) for v in self.redis.lrange(QUALITIES, 0, -1)])
         tot_contributors = self.redis.hgetall(CONTRIBUTORS)
         tot_contributors = Counter({name: int(count) for name, count in tot_contributors.items()})
         tot_contributors += self.contributors
@@ -470,8 +406,9 @@ class RedisRolloutWorker:
 
     def __init__(self, redis: Redis, name: str, match: Match,
                  past_version_prob=.2, evaluation_prob=0.01, sigma_target=1,
-                 streamer_mode=False, deterministic_streamer=False,send_gamestates=True, pretrained_agents=None, human_agent=None,
-                 deterministic_old_prob=0.5, force_paging=False):
+                 streamer_mode=False, deterministic_streamer=False, send_gamestates=True, pretrained_agents=None,
+                 human_agent=None,
+                 deterministic_old_prob=0.5, force_paging=False, deterministic_evaluation=False):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
         self.name = name
@@ -499,6 +436,7 @@ class RedisRolloutWorker:
         self.sigma_target = sigma_target
         self.send_gamestates = send_gamestates
         self.deterministic_old_prob = deterministic_old_prob
+        self.deterministic_evaluation = deterministic_evaluation
 
         # **DEFAULT NEEDS TO INCORPORATE BASIC SECURITY, THIS IS NOT SUFFICIENT**
         self.uuid = str(uuid4())
@@ -520,7 +458,7 @@ class RedisRolloutWorker:
         if n_old == 0:
             return [-1] * n_new
         # Get qualities
-        ratings = [Rating(*_unserialize(v)) for v in _redis_retry_func(partial(self.redis.lrange, QUALITIES, 0, -1))]
+        ratings = [Rating(*_unserialize(v)) for v in self.redis.lrange(QUALITIES, 0, -1)]
 
         if n_new == 0:  # Evaluation game, try to find agents with high sigma
             sigmas = np.array([r.sigma for r in ratings])
@@ -575,7 +513,7 @@ class RedisRolloutWorker:
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
         assert isinstance(version, int)
-        return _unserialize_model(_redis_retry_func(partial(self.redis.lindex, OPPONENT_MODELS, version)))
+        return _unserialize_model(self.redis.lindex(OPPONENT_MODELS, version))
 
     def run(self):  # Mimics Thread
         """
@@ -587,7 +525,7 @@ class RedisRolloutWorker:
         t.start()
         while True:
             # Get the most recent version available
-            available_version = _redis_retry_func(partial(self.redis.get, VERSION_LATEST))
+            available_version = self.redis.get(VERSION_LATEST)
             if available_version is None:
                 time.sleep(1)
                 continue  # Wait for version to be published (not sure if this is necessary?)
@@ -595,7 +533,7 @@ class RedisRolloutWorker:
 
             # Only try to download latest version when new
             if latest_version != available_version:
-                model_bytes = _redis_retry_func(partial(self.redis.get, MODEL_LATEST))
+                model_bytes = self.redis.get(MODEL_LATEST)
                 if model_bytes is None:
                     time.sleep(1)
                     continue  # This is maybe not necessary? Can't hurt to leave it in.
@@ -648,7 +586,8 @@ class RedisRolloutWorker:
                         agents.append(pretrained_choice)
                     else:
                         selected_agent = self._get_past_model(version)
-                        if np.random.random() < self.deterministic_old_prob:
+                        if np.random.random() < self.deterministic_old_prob \
+                                or n_new == 0 and self.deterministic_evaluation:
                             selected_agent.deterministic = True
                         agents.append(selected_agent)
                 versions = [v if v != -1 else latest_version for v in versions]
@@ -705,10 +644,10 @@ class RedisRolloutWorker:
                 t.join()
 
                 def send():
-                    n_items = _redis_retry_func(partial(self.redis.rpush, ROLLOUTS, rollout_bytes))
+                    n_items = self.redis.rpush(ROLLOUTS, rollout_bytes)
                     if n_items >= 1000:
                         print("Had to limit rollouts. Learner may have have crashed, or is overloaded")
-                        _redis_retry_func(partial(self.redis.ltrim, ROLLOUTS, -100, -1))
+                        self.redis.ltrim(ROLLOUTS, -100, -1)
 
                 t = Thread(target=send)
                 t.start()
