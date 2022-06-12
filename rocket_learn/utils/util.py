@@ -15,7 +15,8 @@ from rocket_learn.agent.policy import Policy
 from rocket_learn.agent.pretrained_policy import PretrainedDiscretePolicy, HardcodedAgent
 
 from rocket_learn.experience_buffer import ExperienceBuffer
-from rlgym.utils.terminal_conditions.common_conditions import GoalScoredCondition
+from rlgym.utils.terminal_conditions.common_conditions import GoalScoredCondition, TimeoutCondition
+
 
 
 def generate_episode(env: Gym, policies, evaluate=False) -> (List[ExperienceBuffer], int):
@@ -29,7 +30,7 @@ def generate_episode(env: Gym, policies, evaluate=False) -> (List[ExperienceBuff
         reward = env._match._reward_fn  # noqa
         game_condition = GameCondition(tick_skip=env._match._tick_skip,
                                        forfeit_spg_limit=10 * env._match._team_size)  # noqa
-        env._match._terminal_conditions = [game_condition, GoalScoredCondition()]  # noqa
+        env._match._terminal_conditions = [game_condition, GoalScoredCondition(), TimeoutCondition(10_000)]  # noqa
         env._match._state_setter = DefaultState()  # noqa
         env._match._reward_fn = ConstantReward()  # noqa Save some cpu cycles
 
