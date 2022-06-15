@@ -266,10 +266,9 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
     def _update_ratings(self, name, versions, buffers, latest_version, result):
         ratings = []
         relevant_buffers = []
+        versions = list(filter('na'.__ne__, versions))
         for version, buffer in itertools.zip_longest(versions, buffers):
-            if version == 'na':
-                continue  # no need to rate pretrained agents
-            elif version < 0:
+            if isinstance(version, int) and version < 0:
                 if abs(version - latest_version) <= self.max_age:
                     relevant_buffers.append(buffer)
                     self.contributors[name] += buffer.size()
