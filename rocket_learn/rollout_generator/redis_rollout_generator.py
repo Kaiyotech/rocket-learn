@@ -81,13 +81,15 @@ def _unserialize_model(buf):
     return agent
 
 
-def _redis_retry_func(func, max_retry=10):
+def _redis_retry_func(func, redis: Redis, max_retry=10):
     interval = 2
     for retry in range(1, max_retry + 1):
         try:
             return func()
         except RetryException as e:
             print(f"Failed to call {func.func}, in retry({retry}/{max_retry})")
+        redis.close()
+        redis = Redis(username="user1", password=os.environ["redis_user1_key"])
         time.sleep(interval)
         interval = interval ** 1.5
     else:
@@ -276,9 +278,9 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                     return []
             else:
                 try:
-                    rating = Rating(*_unserialize(_redis_retry_func(partial(self.redis.lindex, QUALITIES, version))))
+                    rating = Rating(*_unserialize(self.redis.lindex(QUALITIES, version))))
                     ratings.append(rating)
-                except RetryException as e:
+                except ConnectionError as e:
                     print(e)
 
         # Only old versions, calculate MMR
