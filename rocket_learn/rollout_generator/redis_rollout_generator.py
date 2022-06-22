@@ -1,4 +1,5 @@
 import functools
+from functools import partial
 import itertools
 import os
 import random
@@ -22,7 +23,7 @@ import wandb
 # from matplotlib.figure import Figure
 from gym.vector.utils import CloudpickleWrapper
 from redis import Redis
-from redis.exceptions import ResponseError
+from redis.exceptions import ResponseError, ConnectionError, TimeoutError
 from rlgym.utils import ObsBuilder, RewardFunction
 from rlgym.utils.action_parsers import ActionParser
 from trueskill import Rating, rate, SIGMA
@@ -77,6 +78,34 @@ def _serialize_model(mdl):
 def _unserialize_model(buf):
     agent = pickle.loads(buf)
     return agent
+
+
+def _redis_retry_func(func, max_retry=10):
+    interval = 2
+    for retry in range(1, max_retry + 1):
+        try:
+            return func()
+        except (TimeoutError, ConnectionError) as e:
+            print(f"Failed to call {func.func}, in retry({retry}/{max_retry})")
+        time.sleep(interval)
+        interval = interval ** 1.5
+    else:
+        raise RetryException(e, max_retry)
+
+
+# Define Exception class for retry
+class RetryException(Exception):
+    u_str = "Exception ({}) raised after {} tries."
+
+    def __init__(self, exp, max_retry):
+        self.exp = exp
+        self.max_retry = max_retry
+
+    def __unicode__(self):
+        return self.u_str.format(self.exp, self.max_retry)
+
+    def __str__(self):
+        return self.__unicode__()
 
 
 def encode_buffers(buffers: List[ExperienceBuffer], strict=False, send_rewards=True):
@@ -246,7 +275,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 else:
                     return []
             else:
-                rating = Rating(*_unserialize(self.redis.lindex(QUALITIES, version)))
+                rating = Rating(*_unserialize(_redis_retry_func(partial(self.redis.lindex, QUALITIES, version))))
                 ratings.append(rating)
 
         # Only old versions, calculate MMR
@@ -268,14 +297,14 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 # Also limit sigma to its lower bound
                 avg_rating = Rating(sum(r.mu for r in ratings) / len(ratings),
                                     max(sum(r.sigma ** 2 for r in ratings) ** 0.5 / len(ratings), self.min_sigma))
-                self.redis.lset(QUALITIES, version, _serialize(tuple(avg_rating)))
+                _redis_retry_func(partial(self.redis.lset, QUALITIES, version, _serialize(tuple(avg_rating))))
 
         return relevant_buffers
 
     def generate_rollouts(self) -> Iterator[ExperienceBuffer]:
         while True:
-            latest_version = int(self.redis.get(VERSION_LATEST))
-            data = self.redis.blpop(ROLLOUTS)[1]
+            latest_version = int(_redis_retry_func(partial(self.redis.get, VERSION_LATEST)))
+            data = _redis_retry_func(partial(self.redis.blpop, ROLLOUTS))[1]
             self.tot_bytes += len(data)
             res = self._process_rollout(
                 data, latest_version,
@@ -480,7 +509,7 @@ class RedisRolloutWorker:
         if n_old == 0:
             return [-1] * n_new
         # Get qualities
-        ratings = [Rating(*_unserialize(v)) for v in self.redis.lrange(QUALITIES, 0, -1)]
+        ratings = [Rating(*_unserialize(v)) for v in _redis_retry_func(partial(self.redis.lrange, QUALITIES, 0, -1))]
 
         if n_new == 0:  # Evaluation game, try to find agents with high sigma
             sigmas = np.array([r.sigma for r in ratings])
@@ -535,7 +564,7 @@ class RedisRolloutWorker:
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
         assert isinstance(version, int)
-        return _unserialize_model(self.redis.lindex(OPPONENT_MODELS, version))
+        return _unserialize_model(_redis_retry_func(partial(self.redis.lindex, OPPONENT_MODELS, version)))
 
     def run(self):  # Mimics Thread
         """
@@ -547,7 +576,7 @@ class RedisRolloutWorker:
         t.start()
         while True:
             # Get the most recent version available
-            available_version = self.redis.get(VERSION_LATEST)
+            available_version = _redis_retry_func(partial(self.redis.get, VERSION_LATEST))
             if available_version is None:
                 time.sleep(1)
                 continue  # Wait for version to be published (not sure if this is necessary?)
@@ -555,7 +584,7 @@ class RedisRolloutWorker:
 
             # Only try to download latest version when new
             if latest_version != available_version:
-                model_bytes = self.redis.get(MODEL_LATEST)
+                model_bytes = _redis_retry_func(partial(self.redis.get, MODEL_LATEST))
                 if model_bytes is None:
                     time.sleep(1)
                     continue  # This is maybe not necessary? Can't hurt to leave it in.
@@ -666,10 +695,10 @@ class RedisRolloutWorker:
                 t.join()
 
                 def send():
-                    n_items = self.redis.rpush(ROLLOUTS, rollout_bytes)
+                    n_items = _redis_retry_func(partial(self.redis.rpush, ROLLOUTS, rollout_bytes))
                     if n_items >= 1000:
                         print("Had to limit rollouts. Learner may have have crashed, or is overloaded")
-                        self.redis.ltrim(ROLLOUTS, -100, -1)
+                        _redis_retry_func(partial(self.redis.ltrim, ROLLOUTS, -100, -1))
 
                 t = Thread(target=send)
                 t.start()
