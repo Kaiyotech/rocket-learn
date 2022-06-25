@@ -1,4 +1,5 @@
 import functools
+from functools import partial
 import itertools
 import os
 import time
@@ -17,6 +18,34 @@ from rocket_learn.rollout_generator.redis.utils import _unserialize_model, MODEL
     EXPERIENCE_PER_MODE
 from rocket_learn.utils.util import probability_NvsM
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
+
+
+def _redis_retry_func(func, max_retry=10):
+    interval = 2
+    for retry in range(1, max_retry + 1):
+        try:
+            return func()
+        except (TimeoutError, ConnectionError) as e:
+            print(f"Failed to call {func.func}, in retry({retry}/{max_retry})")
+        time.sleep(interval)
+        interval = interval ** 1.5
+    else:
+        raise RetryException(e, max_retry)
+
+
+# Define Exception class for retry
+class RetryException(Exception):
+    u_str = "Exception ({}) raised after {} tries."
+
+    def __init__(self, exp, max_retry):
+        self.exp = exp
+        self.max_retry = max_retry
+
+    def __unicode__(self):
+        return self.u_str.format(self.exp, self.max_retry)
+
+    def __str__(self):
+        return self.__unicode__()
 
 
 class RedisRolloutWorker:
@@ -71,6 +100,8 @@ class RedisRolloutWorker:
         self.send_obs = send_obs
         self.dynamic_gm = dynamic_gm
 
+        self.need_retry = False
+
         # **DEFAULT NEEDS TO INCORPORATE BASIC SECURITY, THIS IS NOT SUFFICIENT**
         self.uuid = str(uuid4())
         self.redis.rpush(WORKER_IDS, self.uuid)
@@ -93,7 +124,8 @@ class RedisRolloutWorker:
     def _get_opponent_ids(self, n_new, n_old, pretrained_choice):
         # Get qualities
         gamemode = f"{(n_new + n_old) // 2}v{(n_new + n_old) // 2}"
-        latest_id = self.redis.get(LATEST_RATING_ID).decode("utf-8")
+        # TODO make this stay here if it fails on all of these
+        latest_id = _redis_retry_func(partial(self.redis.get, LATEST_RATING_ID)).decode("utf-8")
         latest_key = f"{latest_id}-stochastic"
         if n_old == 0:
             rating = get_rating(gamemode, latest_key, self.redis)
@@ -159,10 +191,10 @@ class RedisRolloutWorker:
 
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
-        return _unserialize_model(self.redis.hget(OPPONENT_MODELS, version))
+        return _unserialize_model(_redis_retry_func(partial(self.redis.hget, OPPONENT_MODELS, version)))
 
     def select_gamemode(self):
-        mode_exp = {m.decode("utf-8"): int(v) for m, v in self.redis.hgetall(EXPERIENCE_PER_MODE).items()}
+        mode_exp = {m.decode("utf-8"): int(v) for m, v in _redis_retry_func(partial(self.redis.hgetall, EXPERIENCE_PER_MODE)).items()}
         mode = min(mode_exp, key=mode_exp.get)
         b, o = mode.split("v")
         return int(b), int(o)
@@ -177,7 +209,7 @@ class RedisRolloutWorker:
         # t.start()
         while True:
             # Get the most recent version available
-            available_version = self.redis.get(VERSION_LATEST)
+            available_version = _redis_retry_func(partial(self.redis.get, VERSION_LATEST))
             if available_version is None:
                 time.sleep(1)
                 continue  # Wait for version to be published (not sure if this is necessary?)
@@ -185,7 +217,7 @@ class RedisRolloutWorker:
 
             # Only try to download latest version when new
             if latest_version != available_version:
-                model_bytes = self.redis.get(MODEL_LATEST)
+                model_bytes = _redis_retry_func(partial(self.redis.get, MODEL_LATEST))
                 if model_bytes is None:
                     time.sleep(1)
                     continue  # This is maybe not necessary? Can't hurt to leave it in.
@@ -279,10 +311,10 @@ class RedisRolloutWorker:
                 # t.join()
 
                 def send():
-                    n_items = self.redis.rpush(ROLLOUTS, rollout_bytes)
+                    n_items = _redis_retry_func(partial(self.redis.rpush, ROLLOUTS, rollout_bytes))
                     if n_items >= 1000:
                         print("Had to limit rollouts. Learner may have have crashed, or is overloaded")
-                        self.redis.ltrim(ROLLOUTS, -100, -1)
+                        _redis_retry_func(partial(self.redis.ltrim, ROLLOUTS, -100, -1))
 
                 send()
                 # t = Thread(target=send)
