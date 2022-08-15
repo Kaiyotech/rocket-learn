@@ -200,3 +200,89 @@ class DistToBall(StatTracker):
 
     def get_stat(self):
         return self.total_dist / (self.count or 1)
+
+
+class AirTouch(StatTracker):
+    def __init__(self):
+        super().__init__("air_touch_rate")
+        self.count = 0
+        self.total_touches = 0
+
+    def reset(self):
+        self.count = 0
+        self.total_touches = 0
+
+    def update(self, gamestates: np.ndarray, mask: np.ndarray):
+        players = gamestates[:, StateConstants.PLAYERS]
+        is_touch = np.asarray([a * b for a, b in
+                              zip(players[:, StateConstants.BALL_TOUCHED],
+                                  np.invert(players[:, StateConstants.ON_GROUND].astype(bool)))])
+
+        self.total_touches += np.sum(is_touch)
+        self.count += is_touch.size
+
+    def get_stat(self):
+        return self.total_touches / (self.count or 1)
+
+
+class AirTouchHeight(StatTracker):
+    def __init__(self):
+        super().__init__("air_touch_height")
+        self.count = 0
+        self.total_height = 0
+
+    def reset(self):
+        self.count = 0
+        self.total_height = 0
+
+    def update(self, gamestates: np.ndarray, mask: np.ndarray):
+        players = gamestates[:, StateConstants.PLAYERS]
+        ball_z = gamestates[:, StateConstants.BALL_POSITION.start + 2]
+        touch_heights = ball_z[players[:, StateConstants.BALL_TOUCHED].any(axis=1)]
+        touch_heights = touch_heights[touch_heights >= 175]  # remove dribble touches and below
+
+        self.total_height += np.sum(touch_heights)
+        self.count += touch_heights.size
+
+    def get_stat(self):
+        return self.total_height / (self.count or 1)
+
+
+class BallSpeed(StatTracker):
+    def __init__(self):
+        super().__init__("average_ball_speed")
+        self.count = 0
+        self.total_speed = 0.0
+
+    def reset(self):
+        self.count = 0
+        self.total_speed = 0.0
+
+    def update(self, gamestates: np.ndarray, mask: np.ndarray):
+        ball_speed = np.linalg.norm(gamestates[:, StateConstants.BALL_LINEAR_VELOCITY])
+
+        self.total_speed += np.sum(ball_speed)
+        self.count += ball_speed.size
+
+    def get_stat(self):
+        return self.total_speed / (self.count or 1)
+
+
+class BallHeight(StatTracker):
+    def __init__(self):
+        super().__init__("ball_height")
+        self.count = 0
+        self.total_height = 0
+
+    def reset(self):
+        self.count = 0
+        self.total_height = 0
+
+    def update(self, gamestates: np.ndarray, mask: np.ndarray):
+        ball_z = gamestates[:, StateConstants.BALL_POSITION.start + 2]
+
+        self.total_height += np.sum(ball_z)
+        self.count += ball_z.size
+
+    def get_stat(self):
+        return self.total_height / (self.count or 1)
