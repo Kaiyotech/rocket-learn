@@ -259,10 +259,13 @@ class BallSpeed(StatTracker):
         self.total_speed = 0.0
 
     def update(self, gamestates: np.ndarray, mask: np.ndarray):
-        ball_speed = np.linalg.norm(gamestates[:, StateConstants.BALL_LINEAR_VELOCITY])
-
-        self.total_speed += np.sum(ball_speed)
-        self.count += ball_speed.size
+        ball_speeds = gamestates[:, StateConstants.BALL_LINEAR_VELOCITY]
+        xs = ball_speeds[:, 0]
+        ys = ball_speeds[:, 1]
+        zs = ball_speeds[:, 2]
+        speeds = np.sqrt(xs ** 2 + ys ** 2 + zs ** 2)
+        self.total_speed += np.sum(speeds)
+        self.count += speeds.size
 
     def get_stat(self):
         return self.total_speed / (self.count or 1)
