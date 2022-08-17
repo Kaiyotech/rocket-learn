@@ -289,3 +289,68 @@ class BallHeight(StatTracker):
 
     def get_stat(self):
         return self.total_height / (self.count or 1)
+
+
+# class GoalSpeed(StatTracker):
+#     def __init__(self):
+#         super().__init__("avg_goal_speed")
+#         self.count = 0
+#         self.total_speed = 0
+#
+#     def reset(self):
+#         self.count = 0
+#         self.total_speed = 0
+#
+#     def update(self, gamestates: np.ndarray, mask: np.ndarray):
+#         ball_speeds = gamestates[:, StateConstants.BALL_LINEAR_VELOCITY]
+#         goal_speeds = ball_speeds[gamestates[:, StateConstants.].any(axis=1)]
+#         xs = ball_speeds[:, 0]
+#         ys = ball_speeds[:, 1]
+#         zs = ball_speeds[:, 2]
+#         speeds = np.sqrt(xs ** 2 + ys ** 2 + zs ** 2)
+#
+#         self.total_height += np.sum(ball_z)
+#         self.count += ball_z.size
+#
+#     def get_stat(self):
+#         return self.total_height / (self.count or 1)
+
+
+# class MaxGoalSpeed(StatTracker):
+#     def __init__(self):
+#         super().__init__("max_goal_speed")
+#         self.count = 0
+#         self.total_height = 0
+#
+#     def reset(self):
+#         self.count = 0
+#         self.total_height = 0
+#
+#     def update(self, gamestates: np.ndarray, mask: np.ndarray):
+#         ball_z = gamestates[:, StateConstants.BALL_POSITION.start + 2]
+#
+#         self.total_height += np.sum(ball_z)
+#         self.count += ball_z.size
+#
+#     def get_stat(self):
+#         return self.total_height / (self.count or 1)
+
+
+class CarOnGround(StatTracker):
+    def __init__(self):
+        super().__init__("pct_car_on_ground")
+        self.count = 0
+        self.total_ground = 0.0
+
+    def reset(self):
+        self.count = 0
+        self.total_ground = 0.0
+
+    def update(self, gamestates: np.ndarray, mask: np.ndarray):
+        on_ground = gamestates[:, StateConstants.ON_GROUND]
+
+        self.total_ground += np.sum(on_ground)
+        self.count += on_ground.size
+
+    def get_stat(self):
+        return 100 * self.total_ground / (self.count or 1)
