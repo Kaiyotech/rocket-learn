@@ -51,6 +51,7 @@ class RedisRolloutWorker:
                  human_agent=None, force_paging=False, auto_minimize=True,
                  local_cache_name=None,
                  force_old_deterministic=False,
+                 deterministic_streamer=False,
                  gamemode_weights=None,):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
@@ -70,8 +71,11 @@ class RedisRolloutWorker:
             print("**           Pretrained Agents will be ignored.                  **")
 
         self.streamer_mode = streamer_mode
+        self.deterministic_streamer = deterministic_streamer
 
         self.current_agent = _unserialize_model(self.redis.get(MODEL_LATEST))
+        if self.streamer_mode and self.deterministic_streamer:
+            self.current_agent.deterministic = True
         self.past_version_prob = past_version_prob
         self.evaluation_prob = evaluation_prob
         self.sigma_target = sigma_target
@@ -221,7 +225,6 @@ class RedisRolloutWorker:
         b, o = mode.split("v")
         return int(b), int(o)
 
-
     def run(self):  # Mimics Thread
         """
         begin processing in already launched match and push to redis
@@ -247,6 +250,8 @@ class RedisRolloutWorker:
                 latest_version = available_version
                 updated_agent = _unserialize_model(model_bytes)
                 self.current_agent = updated_agent
+                if self.streamer_mode and self.deterministic_streamer:
+                    self.current_agent.deterministic = True
 
             n += 1
             pretrained_choice = None
