@@ -180,6 +180,7 @@ class PPO:
             self.total_steps += self.n_steps  # size
             t1 = time.time()
             self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps})
+            print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
 
             # pr.disable()
             # s = io.StringIO()
@@ -303,6 +304,7 @@ class PPO:
             "ppo/ep_reward_std": ep_rewards.std(),
             "ppo/ep_len_mean": ep_steps.mean(),
         }, step=iteration, commit=False)
+        print(f"std, mean rewards: {ep_rewards.std()}\t{ep_rewards.mean()}")
 
         if isinstance(obs_tensors[0], tuple):
             transposed = zip(*obs_tensors)
