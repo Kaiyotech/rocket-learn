@@ -34,15 +34,14 @@ class RedisRolloutWorker:
      :param sigma_target: Trueskill sigma target
      :param dynamic_gm: Pick game mode dynamically. If True, Match.team_size should be 3
      :param streamer_mode: Should run in streamer mode (less data printed to screen)
-     :param send_gamestates: Should gamestate data be sent back (increases data sent) - must send obs or gamestates
-     :param send_obs: Should observations be send back (increases data sent) - must send obs or gamestates
+     :param send_gamestates: Should gamestate data be sent back (increases data sent)
+     :param send_obs: Should observations be send back (increases data sent)
      :param scoreboard: Scoreboard object
      :param pretrained_agents: Dict{} of pretrained agents and their appearance probability
      :param human_agent: human agent object. Sets a human match if not None
      :param force_paging: Should paging be forced
      :param auto_minimize: automatically minimize the launched rocket league instance
      :param local_cache_name: name of local database used for model caching. If None, caching is not used
-     :param gamemode_weights: dict of dynamic gamemode choice weights. If None, default equal experience
     """
 
     def __init__(self, redis: Redis, name: str, match: Match,
@@ -51,6 +50,7 @@ class RedisRolloutWorker:
                  send_obs=True, scoreboard=None, pretrained_agents=None,
                  human_agent=None, force_paging=False, auto_minimize=True,
                  local_cache_name=None,
+                 deterministic_streamer=False,
                  gamemode_weights=None,):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
@@ -71,8 +71,11 @@ class RedisRolloutWorker:
             print("**           Pretrained Agents will be ignored.                  **")
 
         self.streamer_mode = streamer_mode
+        self.deterministic_streamer = deterministic_streamer
 
         self.current_agent = _unserialize_model(self.redis.get(MODEL_LATEST))
+        if self.streamer_mode and self.deterministic_streamer:
+            self.current_agent.deterministic = True
         self.past_version_prob = past_version_prob
         self.evaluation_prob = evaluation_prob
         self.sigma_target = sigma_target
@@ -222,7 +225,6 @@ class RedisRolloutWorker:
         b, o = mode.split("v")
         return int(b), int(o)
 
-
     def run(self):  # Mimics Thread
         """
         begin processing in already launched match and push to redis
@@ -248,6 +250,8 @@ class RedisRolloutWorker:
                 latest_version = available_version
                 updated_agent = _unserialize_model(model_bytes)
                 self.current_agent = updated_agent
+                if self.streamer_mode and self.deterministic_streamer:
+                    self.current_agent.deterministic = True
 
             n += 1
             pretrained_choice = None
@@ -380,7 +384,5 @@ class RedisRolloutWorker:
                 else:
                     raise ValueError("Unknown version type")
                 agents.append(selected_agent)
-            if self.streamer_mode > 1:
-                agents[-1].deterministic = True
         versions = [v if v != -1 else latest_version for v in versions]
         return agents, pretrained_choice, versions, ratings
