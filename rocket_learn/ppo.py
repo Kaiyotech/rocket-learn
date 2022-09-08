@@ -60,6 +60,7 @@ class PPO:
             logger=None,
             device="cuda",
             zero_grads_with_none=False,
+            disable_gradient_logging=False,
     ):
         self.rollout_generator = rollout_generator
 
@@ -93,7 +94,8 @@ class PPO:
 
         self.total_steps = 0
         self.logger = logger
-        self.logger.watch((self.agent.actor, self.agent.critic))
+        if not disable_gradient_logging:
+            self.logger.watch((self.agent.actor, self.agent.critic))
         self.timer = time.time_ns() // 1_000_000
         self.jit_tracer = None
 
