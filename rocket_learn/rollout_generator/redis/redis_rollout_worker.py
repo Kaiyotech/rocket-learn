@@ -80,8 +80,14 @@ class RedisRolloutWorker:
         self.send_obs = send_obs
         self.dynamic_gm = dynamic_gm
         self.gamemode_weights = gamemode_weights
-        if self.gamemode_weights is not None:
-            assert sum(self.gamemode_weights.values()) == 1, "gamemode_weights must sum to 1"
+        if self.gamemode_weights is None:
+            self.gamemode_weights = {'1v1': 1/3, '2v2': 1/3, '3v3': 1/3}
+        for key in self.gamemode_weights.keys():
+            b, o = key.split("v")
+            self.gamemode_weights[key] = self.gamemode_weights[key] / int(b)
+        new_sum_weights = sum(self.gamemode_weights.values())
+        self.gamemode_weights = {k: self.gamemode_weights[k] / new_sum_weights for k in self.gamemode_weights.keys()}
+        assert sum(self.gamemode_weights.values()) == 1, "gamemode_weights must sum to 1"
         self.local_cache_name = local_cache_name
 
         self.uuid = str(uuid4())
@@ -210,15 +216,7 @@ class RedisRolloutWorker:
         return model
 
     def select_gamemode(self):
-        mode_exp = {m.decode("utf-8"): int(v) for m, v in self.redis.hgetall(EXPERIENCE_PER_MODE).items()}
-        if self.gamemode_weights is None:
-            mode = min(mode_exp, key=mode_exp.get)
-        else:
-            total = sum(mode_exp.values()) + 1e-8
-            mode_exp = {k: mode_exp[k] / total for k in mode_exp.keys()}
-            # find exp which is farthest below desired exp
-            diff = {k: self.gamemode_weights[k] - mode_exp[k] for k in mode_exp.keys()}
-            mode = max(diff, key=diff.get)
+        mode = np.random.choice(list(self.gamemode_weights.keys()), p=list(self.gamemode_weights.values()))
         b, o = mode.split("v")
         return int(b), int(o)
 
