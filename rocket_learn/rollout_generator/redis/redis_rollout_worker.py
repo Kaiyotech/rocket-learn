@@ -87,7 +87,6 @@ class RedisRolloutWorker:
             self.gamemode_weights[key] = self.gamemode_weights[key] / int(b)
         new_sum_weights = sum(self.gamemode_weights.values())
         self.gamemode_weights = {k: self.gamemode_weights[k] / new_sum_weights for k in self.gamemode_weights.keys()}
-        assert sum(self.gamemode_weights.values()) == 1, "gamemode_weights must sum to 1"
         self.local_cache_name = local_cache_name
 
         self.uuid = str(uuid4())
