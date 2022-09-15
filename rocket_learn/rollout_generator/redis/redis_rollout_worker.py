@@ -35,14 +35,15 @@ class RedisRolloutWorker:
      :param sigma_target: Trueskill sigma target
      :param dynamic_gm: Pick game mode dynamically. If True, Match.team_size should be 3
      :param streamer_mode: Should run in streamer mode (less data printed to screen)
-     :param send_gamestates: Should gamestate data be sent back (increases data sent)
-     :param send_obs: Should observations be send back (increases data sent)
+     :param send_gamestates: Should gamestate data be sent back (increases data sent) - must send obs or gamestates
+     :param send_obs: Should observations be send back (increases data sent) - must send obs or gamestates
      :param scoreboard: Scoreboard object
      :param pretrained_agents: Dict{} of pretrained agents and their appearance probability
      :param human_agent: human agent object. Sets a human match if not None
      :param force_paging: Should paging be forced
      :param auto_minimize: automatically minimize the launched rocket league instance
      :param local_cache_name: name of local database used for model caching. If None, caching is not used
+     :param gamemode_weights: dict of dynamic gamemode choice weights. If None, default equal experience
      :param force_old_deterministic: force all old models to be deterministic only
     """
 
@@ -54,7 +55,10 @@ class RedisRolloutWorker:
                  local_cache_name=None,
                  force_old_deterministic=False,
                  deterministic_streamer=False,
-                 gamemode_weights=None,):
+                 gamemode_weights=None,
+                 batch_mode=False,
+                 step_size=100_000,
+                 ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
         self.name = name
@@ -103,6 +107,11 @@ class RedisRolloutWorker:
         self.uuid = str(uuid4())
         self.redis.rpush(WORKER_IDS, self.uuid)
 
+        self.batch_mode = batch_mode
+        self.step_size_limit = min(step_size / 20, 25_000)
+        if self.batch_mode:
+            self.red_pipe = self.redis.pipeline()
+            self.step_last_send = 0
 
         # currently doesn't rebuild, if the old is there, reuse it.
         if self.local_cache_name:
@@ -241,6 +250,7 @@ class RedisRolloutWorker:
         b, o = mode.split("v")
         return int(b), int(o)
 
+
     def run(self):  # Mimics Thread
         """
         begin processing in already launched match and push to redis
@@ -340,7 +350,7 @@ class RedisRolloutWorker:
                 if not self.streamer_mode:
                     print(post_stats)
 
-            if not self.streamer_mode:
+            if not self.streamer_mode and not self.batch_mode:
                 rollout_data = encode_buffers(rollouts,
                                               return_obs=self.send_obs,
                                               return_states=self.send_gamestates,
@@ -366,6 +376,26 @@ class RedisRolloutWorker:
                 # t = Thread(target=send)
                 # t.start()
                 # time.sleep(0.01)
+
+            elif not self.streamer_mode and self.batch_mode:
+
+                rollout_data = encode_buffers(rollouts,
+                                              return_obs=self.send_obs,
+                                              return_states=self.send_gamestates,
+                                              return_rewards=True)
+                rollout_bytes = _serialize((rollout_data, versions, self.uuid, self.name, result,
+                                            self.send_obs, self.send_gamestates, True))
+
+                self.red_pipe.rpush(ROLLOUTS, rollout_bytes)
+
+                #  def send():
+                if (self.total_steps_generated - self.step_last_send) > self.step_size_limit or \
+                        len(self.red_pipe) > 100:
+                    n_items = self.red_pipe.execute()
+                    if n_items[-1] >= 10000:
+                        print("Had to limit rollouts. Learner may have have crashed, or is overloaded")
+                        self.redis.ltrim(ROLLOUTS, -100, -1)
+                    self.step_last_send = self.total_steps_generated
 
     def _generate_matchup(self, n_agents, latest_version, pretrained_choice):
         n_old = 0
