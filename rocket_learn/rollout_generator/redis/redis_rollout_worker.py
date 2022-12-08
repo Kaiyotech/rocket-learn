@@ -95,6 +95,8 @@ class RedisRolloutWorker:
         if self.batch_mode:
             self.red_pipe = self.redis.pipeline()
             self.step_last_send = 0
+        self.pipeline_size = 0
+        self.pipeline_limit = 100_000_000  # 100 MB (ish)
 
         # currently doesn't rebuild, if the old is there, reuse it.
         if self.local_cache_name:
@@ -362,12 +364,15 @@ class RedisRolloutWorker:
                 rollout_bytes = _serialize((rollout_data, versions, self.uuid, self.name, result,
                                             self.send_obs, self.send_gamestates, True))
 
+                self.pipeline_size += len(rollout_bytes)
+
                 self.red_pipe.rpush(ROLLOUTS, rollout_bytes)
 
                 #  def send():
                 if (self.total_steps_generated - self.step_last_send) > self.step_size_limit or \
-                        len(self.red_pipe) > 100:
+                        len(self.red_pipe) > 100 or self.pipeline_size > self.pipeline_limit:
                     n_items = self.red_pipe.execute()
+                    self.pipeline_size = 0
                     if n_items[-1] >= 10000:
                         print("Had to limit rollouts. Learner may have have crashed, or is overloaded")
                         self.redis.ltrim(ROLLOUTS, -100, -1)
