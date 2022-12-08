@@ -58,6 +58,7 @@ class RedisRolloutWorker:
                  gamemode_weights=None,
                  batch_mode=False,
                  step_size=100_000,
+                 pipeline_limit_bytes=10_000_000,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
@@ -113,7 +114,7 @@ class RedisRolloutWorker:
             self.red_pipe = self.redis.pipeline()
             self.step_last_send = 0
         self.pipeline_size = 0
-        self.pipeline_limit = 100_000_000  # 100 MB (ish)
+        self.pipeline_limit = pipeline_limit_bytes  # 10 MB is default
 
         # currently doesn't rebuild, if the old is there, reuse it.
         if self.local_cache_name:
