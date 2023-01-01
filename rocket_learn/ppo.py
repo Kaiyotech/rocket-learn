@@ -294,12 +294,12 @@ class PPO:
             advantages = self._calculate_advantages_numba(rewards, values, self.gamma, self.gae_lambda)
 
             returns = advantages + values
-
+            flat_actions = actions.flatten()
             if self.action_selection_dict is not None:
-                unique, counts = np.unique(actions, return_counts=True)
+                unique, counts = np.unique(flat_actions, return_counts=True)
                 for i, value in enumerate(unique):
                     action_count[value] += counts[i]
-                action_changes += (np.diff(actions) != 0).sum()
+                action_changes += (np.diff(flat_actions) != 0).sum()
 
             obs_tensors.append(obs_tensor)
             act_tensors.append(th.from_numpy(actions))
