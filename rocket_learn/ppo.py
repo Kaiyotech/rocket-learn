@@ -323,7 +323,7 @@ class PPO:
 
         if self.action_selection_dict is not None:
             for k, v in self.action_selection_dict.items():
-                count = x[k]
+                count = action_count[k]
                 name = "submodels/" + v
                 ratio_used = count / total_steps
                 self.logger.log({name: ratio_used}, step=iteration, commit=False)
