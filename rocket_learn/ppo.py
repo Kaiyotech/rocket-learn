@@ -5,6 +5,7 @@ import pstats
 import time
 import sys
 from typing import Iterator
+from collections import defaultdict
 
 import numba
 import numpy as np
@@ -61,7 +62,11 @@ class PPO:
             device="cuda",
             zero_grads_with_none=False,
             disable_gradient_logging=False,
+            action_selection_dict=None,
+            num_actions=0,
     ):
+        self.num_actions = num_actions
+        self.action_selection_dict = action_selection_dict
         self.rollout_generator = rollout_generator
 
         # TODO let users choose their own agent
@@ -245,6 +250,9 @@ class PPO:
 
         ep_rewards = []
         ep_steps = []
+        action_count = np.asarray([0] * self.num_actions)
+        action_changes = 0
+
         n = 0
 
         for buffer in buffers:  # Do discounts for each ExperienceBuffer individually
@@ -287,6 +295,12 @@ class PPO:
 
             returns = advantages + values
 
+            if self.action_selection_dict is not None:
+                unique, counts = np.unique(actions, return_counts=True)
+                for i, value in enumerate(unique):
+                    action_count[value] += counts[i]
+                action_changes += (np.diff(actions) != 0).sum()
+
             obs_tensors.append(obs_tensor)
             act_tensors.append(th.from_numpy(actions))
             log_prob_tensors.append(th.from_numpy(log_probs))
@@ -299,11 +313,21 @@ class PPO:
         ep_rewards = np.array(ep_rewards)
         ep_steps = np.array(ep_steps)
 
+        total_steps = sum(ep_steps)
         self.logger.log({
             "ppo/ep_reward_mean": ep_rewards.mean(),
             "ppo/ep_reward_std": ep_rewards.std(),
             "ppo/ep_len_mean": ep_steps.mean(),
+            "submodels/action_changes": action_changes / total_steps
         }, step=iteration, commit=False)
+
+        if self.action_selection_dict is not None:
+            for k, v in self.action_selection_dict.items():
+                count = x[k]
+                name = "submodels/" + v
+                ratio_used = count / total_steps
+                self.logger.log({name: ratio_used}, step=iteration, commit=False)
+
         print(f"std, mean rewards: {ep_rewards.std()}\t{ep_rewards.mean()}")
 
         if isinstance(obs_tensors[0], tuple):
