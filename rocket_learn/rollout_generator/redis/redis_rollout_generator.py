@@ -319,7 +319,9 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         if tot_contributors:
             self.redis.hset(CONTRIBUTORS, mapping=tot_contributors)
         self.contributors.clear()
-        self.redis.delete(*[k for k in self.redis.keys("selector_stat*")])
+        stat_keys = self.redis.keys("selector_stat*")
+        if len(stat_keys):
+            self.redis.delete(*[k for k in stat_keys])
         self.logger.log({"redis/rollout_bytes": self.tot_bytes}, commit=False)
         self.tot_bytes = 0
 
