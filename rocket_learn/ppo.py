@@ -318,7 +318,7 @@ class PPO:
             "ppo/ep_reward_mean": ep_rewards.mean(),
             "ppo/ep_reward_std": ep_rewards.std(),
             "ppo/ep_len_mean": ep_steps.mean(),
-            "submodels/action_changes": action_changes / total_steps
+            "action_changes/action_changes": action_changes / total_steps
         }, step=iteration, commit=False)
 
         if self.action_selection_dict is not None:
