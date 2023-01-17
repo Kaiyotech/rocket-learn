@@ -41,7 +41,10 @@ def _serialize(obj):
 
 
 def _unserialize(obj):
-    return msgpack.unpackb(zlib.decompress(obj))
+    try:
+        return msgpack.unpackb(zlib.decompress(obj))
+    except (msgpack.UnpackException, zlib.error):
+        return pickle.loads(obj)
 
 
 def _serialize_model(mdl):
