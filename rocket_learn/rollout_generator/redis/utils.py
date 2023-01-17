@@ -1,5 +1,4 @@
 # Constants for consistent key lookup
-import _pickle
 import pickle
 import zlib
 from typing import List, Optional, Union, Dict
@@ -38,16 +37,11 @@ m.patch()
 
 # Helper methods for easier changing of byte conversion
 def _serialize(obj):
-    # return zlib.compress(msgpack.packb(obj))
-    return pickle.dumps(obj)
+    return zlib.compress(msgpack.packb(obj))
 
 
 def _unserialize(obj):
-    try:
-        return pickle.loads(obj)
-
-    except pickle.UnpicklingError:  # for the old version to still get old models and such
-        return msgpack.unpackb(zlib.decompress(obj))
+    return msgpack.unpackb(zlib.decompress(obj))
 
 
 def _serialize_model(mdl):
