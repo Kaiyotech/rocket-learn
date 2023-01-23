@@ -44,6 +44,7 @@ class RedisRolloutWorker:
      :param auto_minimize: automatically minimize the launched rocket league instance
      :param local_cache_name: name of local database used for model caching. If None, caching is not used
      :param gamemode_weights: dict of dynamic gamemode choice weights. If None, default equal experience
+     :param gamemode_weight_ema_alpha: alpha for the exponential moving average of gamemode weighting
     """
 
     def __init__(self, redis: Redis, name: str, match: Match,
@@ -101,7 +102,7 @@ class RedisRolloutWorker:
         for k in self.current_weights.keys():
             b, o = k.split("v")
             self.current_weights[k] /= int(b)
-        self.current_weights = {k: self.current_weights[k] / sum(self.current_weights.values()) + 1e-8 for k in self.current_weights.keys()}
+        self.current_weights = {k: self.current_weights[k] / (sum(self.current_weights.values()) + 1e-8) for k in self.current_weights.keys()}
         self.mean_exp_grant = {'1v1': 1000, '2v2': 2000, '3v3': 3000}
         self.ema_alpha = gamemode_weight_ema_alpha
         self.local_cache_name = local_cache_name
@@ -240,10 +241,10 @@ class RedisRolloutWorker:
 
     def select_gamemode(self):
 
-        emp_weight = {k: self.mean_exp_grant[k] / sum(self.mean_exp_grant.values()) + 1e-8
+        emp_weight = {k: self.mean_exp_grant[k] / (sum(self.mean_exp_grant.values()) + 1e-8)
                       for k in self.mean_exp_grant.keys()}
         cor_weight = {k: self.gamemode_weights[k] / emp_weight[k] for k in self.gamemode_weights.keys()}
-        self.current_weights = {k: cor_weight[k] / sum(cor_weight.values()) + 1e-8 for k in cor_weight}
+        self.current_weights = {k: cor_weight[k] / (sum(cor_weight.values()) + 1e-8) for k in cor_weight}
         mode = np.random.choice(list(self.current_weights.keys()), p=list(self.current_weights.values()))
         b, o = mode.split("v")
         return int(b), int(o)
