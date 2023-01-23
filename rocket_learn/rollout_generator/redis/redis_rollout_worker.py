@@ -44,7 +44,6 @@ class RedisRolloutWorker:
      :param auto_minimize: automatically minimize the launched rocket league instance
      :param local_cache_name: name of local database used for model caching. If None, caching is not used
      :param gamemode_weights: dict of dynamic gamemode choice weights. If None, default equal experience
-     :param force_old_deterministic: force all old models to be deterministic only
     """
 
     def __init__(self, redis: Redis, name: str, match: Match,
@@ -59,6 +58,7 @@ class RedisRolloutWorker:
                  batch_mode=False,
                  step_size=100_000,
                  pipeline_limit_bytes=10_000_000,
+                 gamemode_weight_ema_alpha=0.02,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
@@ -97,12 +97,13 @@ class RedisRolloutWorker:
         assert sum(self.gamemode_weights.values()) == 1, "gamemode_weights must sum to 1"
         self.target_weights = copy.copy(self.gamemode_weights)
         # change weights from percentage of experience desired to percentage of gamemodes necessary (approx)
-        for k in self.gamemode_weights.keys():
+        self.current_weights = copy.copy(self.gamemode_weights)
+        for k in self.current_weights.keys():
             b, o = k.split("v")
-            self.gamemode_weights[k] /= int(b)
-        weights_sum = sum(self.gamemode_weights.values())
-        self.gamemode_weights = {k: self.gamemode_weights[k] / weights_sum for k in self.gamemode_weights.keys()}
-        self.experience = {'1v1': 0, '2v2': 0, '3v3': 0}
+            self.current_weights[k] /= int(b)
+        self.current_weights = {k: self.current_weights[k] / sum(self.current_weights.values()) + 1e-8 for k in self.current_weights.keys()}
+        self.mean_exp_grant = {'1v1': 1000, '2v2': 2000, '3v3': 3000}
+        self.ema_alpha = gamemode_weight_ema_alpha
         self.local_cache_name = local_cache_name
 
         self.uuid = str(uuid4())
@@ -239,20 +240,13 @@ class RedisRolloutWorker:
 
     def select_gamemode(self):
 
-        total = sum(self.experience.values()) + 1e-8
-        mode_exp = {k: self.experience[k] / total for k in self.experience.keys()}
-        diff = {k: self.target_weights[k] - mode_exp[k] for k in mode_exp.keys()}
-        # change diff from experience weights to gamemode weights
-        for k in diff.keys():
-            b, o = k.split("v")
-            diff[k] *= int(b)
-        self.gamemode_weights = {k: max(self.gamemode_weights[k] + diff[k], 0) for k in self.gamemode_weights.keys()}
-        new_sum = sum(self.gamemode_weights.values())
-        self.gamemode_weights = {k: self.gamemode_weights[k] / new_sum for k in self.gamemode_weights.keys()}
-        mode = np.random.choice(list(self.gamemode_weights.keys()), p=list(self.gamemode_weights.values()))
+        emp_weight = {k: self.mean_exp_grant[k] / sum(self.mean_exp_grant.values()) + 1e-8
+                      for k in self.mean_exp_grant.keys()}
+        cor_weight = {k: self.gamemode_weights[k] / emp_weight[k] for k in self.gamemode_weights.keys()}
+        self.current_weights = {k: cor_weight[k] / sum(cor_weight.values()) + 1e-8 for k in cor_weight}
+        mode = np.random.choice(list(self.current_weights.keys()), p=list(self.current_weights.values()))
         b, o = mode.split("v")
         return int(b), int(o)
-
 
     def run(self):  # Mimics Thread
         """
@@ -345,7 +339,8 @@ class RedisRolloutWorker:
                 str_result = ('+' if result > 0 else "") + str(result)
                 episode_exp = len(rollouts[0].observations) * len(rollouts)
                 self.total_steps_generated += episode_exp
-                self.experience[f"{blue}v{orange}"] += episode_exp
+                old_exp = self.mean_exp_grant[f"{blue}v{orange}"]
+                self.mean_exp_grant = ((episode_exp - old_exp) * self.ema_alpha) + old_exp
                 post_stats = f"Rollout finished after {len(rollouts[0].observations)} steps ({self.total_steps_generated} total steps), result was {str_result}"
                 if result != 0:
                     post_stats += f", goal speed: {goal_speed:.2f} kph"
