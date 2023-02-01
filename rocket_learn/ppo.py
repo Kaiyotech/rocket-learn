@@ -38,6 +38,7 @@ class PPO:
         :param logger: wandb logger to store run results
         :param device: torch device
         :param zero_grads_with_none: 0 gradient with None instead of 0
+        :param tick_skip_starts: a list of three tuples, from iteration 0, of (tick_skip, iteration_started, step_size)
 
         Look here for info on zero_grads_with_none
         https://pytorch.org/docs/master/generated/torch.optim.Optimizer.zero_grad.html#torch.optim.Optimizer.zero_grad
@@ -64,7 +65,9 @@ class PPO:
             disable_gradient_logging=False,
             action_selection_dict=None,
             num_actions=0,
+            tick_skip_starts=None,
     ):
+        self.tick_skip_starts = tick_skip_starts
         self.num_actions = num_actions
         self.action_selection_dict = action_selection_dict
         self.rollout_generator = rollout_generator
@@ -182,10 +185,23 @@ class PPO:
             else:
                 self.rollout_generator.update_parameters(self.agent.actor)
 
+            # calculate years for graph
+            if self.tick_skip_starts is not None:
+                new_iteration = iteration
+                years = 0
+                for i in reversed(self.tick_skip_starts):
+                    length = new_iteration - i[1]
+                    years += length * i[2] / (3600 * 24 * 365 * (120 / i[0]))
+                    new_iteration = i[1]
+                self.logger.log({"ppo/years": years}, step=iteration, commit=False)
+
             self.total_steps += self.n_steps  # size
             t1 = time.time()
             self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps})
             print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
+
+
+
 
             # pr.disable()
             # s = io.StringIO()
