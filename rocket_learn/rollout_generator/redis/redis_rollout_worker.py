@@ -45,6 +45,7 @@ class RedisRolloutWorker:
      :param local_cache_name: name of local database used for model caching. If None, caching is not used
      :param gamemode_weights: dict of dynamic gamemode choice weights. If None, default equal experience
      :param gamemode_weight_ema_alpha: alpha for the exponential moving average of gamemode weighting
+     :param selector_skip_k: value to control the tick skip probability of the selector
     """
 
     def __init__(self, redis: Redis, name: str, match: Match,
@@ -60,10 +61,13 @@ class RedisRolloutWorker:
                  step_size=100_000,
                  pipeline_limit_bytes=10_000_000,
                  gamemode_weight_ema_alpha=0.02,
+                 selector_skip_k=None,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
         self.name = name
+
+        self.selector_skip_k = selector_skip_k
 
         assert send_gamestates or send_obs, "Must have at least one of obs or states"
 
@@ -316,7 +320,8 @@ class RedisRolloutWorker:
                     and not self.streamer_mode and self.human_agent is None:
                 print("Running evaluation game with versions:", version_info)
                 result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents, evaluate=True,
-                                                                              scoreboard=self.scoreboard)
+                                                                              scoreboard=self.scoreboard,
+                                                                              selector_skip_k=self.selector_skip_k)
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
             else:
@@ -326,7 +331,8 @@ class RedisRolloutWorker:
                 try:
                     rollouts, result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents,
                                                                                             evaluate=False,
-                                                                                            scoreboard=self.scoreboard)
+                                                                                            scoreboard=self.scoreboard,
+                                                                                            selector_skip_k=self.selector_skip_k)
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
                         print(" ** Rollout Generation Error: Restarting Generation ** ")
