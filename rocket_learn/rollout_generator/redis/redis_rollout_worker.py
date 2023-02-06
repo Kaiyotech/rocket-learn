@@ -147,6 +147,7 @@ class RedisRolloutWorker:
     def _get_opponent_ids(self, n_new, n_old, pretrained_choice):
         # Get qualities
         gamemode = f"{(n_new + n_old) // 2}v{(n_new + n_old) // 2}"
+        gamemode = '1v0' if gamemode == '0v0' else gamemode
         latest_id = self.redis.get(LATEST_RATING_ID).decode("utf-8")
         latest_key = f"{latest_id}-stochastic"
         if n_old == 0:
@@ -282,6 +283,9 @@ class RedisRolloutWorker:
 
             if self.dynamic_gm:
                 blue, orange = self.select_gamemode()
+            elif self.match.agents == 1:
+                blue = 1
+                orange = 0
             else:
                 blue = orange = self.match.agents // 2
             self.set_team_size(blue, orange)
@@ -340,8 +344,9 @@ class RedisRolloutWorker:
                 str_result = ('+' if result > 0 else "") + str(result)
                 episode_exp = len(rollouts[0].observations) * len(rollouts)
                 self.total_steps_generated += episode_exp
-                old_exp = self.mean_exp_grant[f"{blue}v{orange}"]
-                self.mean_exp_grant[f"{blue}v{orange}"] = ((episode_exp - old_exp) * self.ema_alpha) + old_exp
+                if self.dynamic_gm:
+                    old_exp = self.mean_exp_grant[f"{blue}v{orange}"]
+                    self.mean_exp_grant[f"{blue}v{orange}"] = ((episode_exp - old_exp) * self.ema_alpha) + old_exp
                 post_stats = f"Rollout finished after {len(rollouts[0].observations)} steps ({self.total_steps_generated} total steps), result was {str_result}"
                 if result != 0:
                     post_stats += f", goal speed: {goal_speed:.2f} kph"
