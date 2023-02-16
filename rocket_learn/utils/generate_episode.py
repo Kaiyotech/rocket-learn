@@ -50,11 +50,12 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
     ]
 
     with torch.no_grad():
+        do_selector = True
+        last_actions = [None] * 6
         while True:
             all_indices = []
             all_actions = []
             all_log_probs = []
-            do_selector = do_selector_action(selector_skip_k, tick) if selector_skip_k is not None else True
 
             # if observation isn't a list, make it one so we don't iterate over the observation directly
             if not isinstance(observations, list):
@@ -68,19 +69,20 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
                 else:
                     obs = np.concatenate(observations, axis=0)
 
-                if do_selector:
-                    dist = policy.get_action_distribution(obs)
-                    action_indices = policy.sample_action(dist)
-                    log_probs = policy.log_prob(dist, action_indices)
-                    actions = policy.env_compatible(action_indices)
+                dist = policy.get_action_distribution(obs)
+                action_indices = policy.sample_action(dist)
+                log_probs = policy.log_prob(dist, action_indices)
 
-                    all_indices.extend(list(action_indices.numpy()))
-                    all_actions.extend(list(actions))
-                    all_log_probs.extend(list(log_probs.numpy()))
+                if do_selector:
+                    actions = policy.env_compatible(action_indices)
+                    last_actions = actions
+
                 else:
-                    all_indices = last_indices
-                    all_actions = last_actions
-                    all_log_probs = last_log_probs
+                    actions = last_actions
+
+                all_indices.extend(list(action_indices.numpy()))
+                all_actions.extend(list(actions))
+                all_log_probs.extend(list(log_probs.numpy()))
 
             else:
                 index = 0
@@ -100,19 +102,20 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
                         all_log_probs.append(None)
 
                     elif isinstance(policy, Policy):
-                        if do_selector:
-                            dist = policy.get_action_distribution(obs)
-                            action_indices = policy.sample_action(dist)[0]
-                            log_probs = policy.log_prob(dist, action_indices).item()
-                            actions = policy.env_compatible(action_indices)
+                        dist = policy.get_action_distribution(obs)
+                        action_indices = policy.sample_action(dist)[0]
+                        log_probs = policy.log_prob(dist, action_indices).item()
 
-                            all_indices.append(action_indices.numpy())
-                            all_actions.append(actions)
-                            all_log_probs.append(log_probs)
+                        if do_selector:
+                            actions = policy.env_compatible(action_indices)
+                            last_actions[index] = actions
+
                         else:
-                            all_indices.append(last_indices[index])
-                            all_actions.append(last_actions[index])
-                            all_log_probs.append(last_log_probs[index])
+                            actions = last_actions[index]
+
+                        all_indices.append(action_indices.numpy())
+                        all_actions.append(actions)
+                        all_log_probs.append(log_probs)
 
                     else:
                         print(str(type(policy)) + " type use not defined")
@@ -120,9 +123,8 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
 
                     index += 1
 
-            last_indices = all_indices
-            last_actions = all_actions
-            last_log_probs = all_log_probs
+            do_selector = do_selector_action(selector_skip_k, tick) if selector_skip_k is not None else True
+            tick = 0 if do_selector else tick + 1
 
             # to allow different action spaces, pad out short ones to longest length (assume later unpadding in parser)
             length = max([a.shape[0] for a in all_actions])
@@ -166,8 +168,6 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
                     observations, info = env.reset(return_info=True)
 
             last_state = info['state']
-
-    tick += 1
 
     if scoreboard is not None:
         scoreboard.random_resets = random_resets  # noqa Checked above
