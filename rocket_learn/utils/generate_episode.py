@@ -13,7 +13,7 @@ from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
 
-def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None) -> (List[ExperienceBuffer], int):
+def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, selector_skip_k=None) -> (List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
     """
@@ -37,6 +37,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None) -> (Li
         random_resets = scoreboard.random_resets
         scoreboard.random_resets = not evaluate
     observations, info = env.reset(return_info=True)
+    tick = 0
     result = 0
 
     last_state = info['state']  # game_state for obs_building of other agents
@@ -53,6 +54,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None) -> (Li
             all_indices = []
             all_actions = []
             all_log_probs = []
+            do_selector = do_selector_action(selector_skip_k, tick) if selector_skip_k is not None else True
 
             # if observation isn't a list, make it one so we don't iterate over the observation directly
             if not isinstance(observations, list):
@@ -65,14 +67,21 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None) -> (Li
                                 for i in range(len(observations[0])))
                 else:
                     obs = np.concatenate(observations, axis=0)
-                dist = policy.get_action_distribution(obs)
-                action_indices = policy.sample_action(dist)
-                log_probs = policy.log_prob(dist, action_indices)
-                actions = policy.env_compatible(action_indices)
 
-                all_indices.extend(list(action_indices.numpy()))
-                all_actions.extend(list(actions))
-                all_log_probs.extend(list(log_probs.numpy()))
+                if do_selector:
+                    dist = policy.get_action_distribution(obs)
+                    action_indices = policy.sample_action(dist)
+                    log_probs = policy.log_prob(dist, action_indices)
+                    actions = policy.env_compatible(action_indices)
+
+                    all_indices.extend(list(action_indices.numpy()))
+                    all_actions.extend(list(actions))
+                    all_log_probs.extend(list(log_probs.numpy()))
+                else:
+                    all_indices = last_indices
+                    all_actions = last_actions
+                    all_log_probs = last_log_probs
+
             else:
                 index = 0
                 for policy, obs in zip(policies, observations):
@@ -91,20 +100,29 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None) -> (Li
                         all_log_probs.append(None)
 
                     elif isinstance(policy, Policy):
-                        dist = policy.get_action_distribution(obs)
-                        action_indices = policy.sample_action(dist)[0]
-                        log_probs = policy.log_prob(dist, action_indices).item()
-                        actions = policy.env_compatible(action_indices)
+                        if do_selector:
+                            dist = policy.get_action_distribution(obs)
+                            action_indices = policy.sample_action(dist)[0]
+                            log_probs = policy.log_prob(dist, action_indices).item()
+                            actions = policy.env_compatible(action_indices)
 
-                        all_indices.append(action_indices.numpy())
-                        all_actions.append(actions)
-                        all_log_probs.append(log_probs)
+                            all_indices.append(action_indices.numpy())
+                            all_actions.append(actions)
+                            all_log_probs.append(log_probs)
+                        else:
+                            all_indices.append(last_indices[index])
+                            all_actions.append(last_actions[index])
+                            all_log_probs.append(last_log_probs[index])
 
                     else:
                         print(str(type(policy)) + " type use not defined")
                         assert False
 
                     index += 1
+
+            last_indices = all_indices
+            last_actions = all_actions
+            last_log_probs = all_log_probs
 
             # to allow different action spaces, pad out short ones to longest length (assume later unpadding in parser)
             length = max([a.shape[0] for a in all_actions])
@@ -149,6 +167,8 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None) -> (Li
 
             last_state = info['state']
 
+    tick += 1
+
     if scoreboard is not None:
         scoreboard.random_resets = random_resets  # noqa Checked above
 
@@ -162,3 +182,11 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None) -> (Li
         return result
 
     return rollouts, result
+
+
+def do_selector_action(selector_skip_k, tick) -> bool:
+    p = 1 / (1 + (selector_skip_k * tick))
+    if np.random.uniform() < p:
+        return False
+    else:
+        return True
