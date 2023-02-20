@@ -146,7 +146,8 @@ class BehindBall(StatTracker):
         players = gamestates[:, StateConstants.PLAYERS]
         ball_y = gamestates[:, StateConstants.BALL_POSITION.start + 1]
         player_y = players[:, StateConstants.CAR_POS_Y]
-        behind = (2 * players[:, StateConstants.TEAM_NUMS] - 1) * (ball_y.reshape(-1, 1) - player_y) < 0
+        is_orange = players[:, StateConstants.TEAM_NUMS]
+        behind = (2 * is_orange - 1) * (ball_y.reshape(-1, 1) - player_y) < 0
 
         self.total_behind += np.sum(behind)
         self.count += behind.size

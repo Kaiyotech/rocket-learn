@@ -199,7 +199,7 @@ class RedisRolloutWorker:
             probs[i] = (p * (1 - p)) ** (2 / (n_old + n_new))  # Be a little bit less strict the more players there are
         probs /= probs.sum()
 
-        old_versions = np.random.choice(len(probs), size=n_old, p=probs, replace=n_new > 0).tolist()
+        old_versions = np.random.choice(len(probs), size=n_old, p=probs, replace=True).tolist()
         versions += old_versions
 
         # Then calculate the full matchup, with just permutations of the selected versions (weighted by fairness)
@@ -418,16 +418,18 @@ class RedisRolloutWorker:
 
             if r < self.evaluation_prob:
                 n_old = n_agents
-            elif rand_choice < self.past_version_prob:
-                n_old = np.random.randint(low=1, high=n_agents)
-            elif rand_choice < (self.past_version_prob + self.pretrained_total_prob):
-                wheel_prob = self.past_version_prob
-                for agent in self.pretrained_agents:
-                    wheel_prob += self.pretrained_agents[agent]
-                    if rand_choice < wheel_prob:
-                        pretrained_choice = agent
-                        n_old = np.random.randint(low=1, high=n_agents)
-                        break
+            else:
+                rand_choice = (r - self.evaluation_prob) / (1 - self.evaluation_prob)
+                if rand_choice < self.past_version_prob:
+                    n_old = np.random.randint(low=1, high=n_agents)
+                elif rand_choice < (self.past_version_prob + self.pretrained_total_prob):
+                    wheel_prob = self.past_version_prob
+                    for agent in self.pretrained_agents:
+                        wheel_prob += self.pretrained_agents[agent]
+                        if rand_choice < wheel_prob:
+                            pretrained_choice = agent
+                            n_old = np.random.randint(low=1, high=n_agents)
+                            break
         n_new = n_agents - n_old
         versions, ratings = self._get_opponent_ids(n_new, n_old, pretrained_choice)
         agents = []

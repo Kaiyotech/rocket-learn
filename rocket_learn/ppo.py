@@ -280,22 +280,10 @@ class PPO:
 
             with th.no_grad():
                 if isinstance(obs_tensor, tuple):
-                    try:
-                        x = tuple(o.to(self.device) for o in obs_tensor)
-                    except RuntimeError as e:
-                        print("RuntimeError in obs transfer", e)
-                        x = tuple(o.to(self.device) for o in obs_tensor)
+                    x = tuple(o.to(self.device) for o in obs_tensor)
                 else:
-                    try:
-                        x = obs_tensor.to(self.device)
-                    except RuntimeError as e:
-                        print("RuntimeError in obs transfer", e)
-                        x = obs_tensor.to(self.device)
-                try:
-                    values = self.agent.critic(x).detach().cpu().numpy().flatten()  # No batching?
-                except RuntimeError as e:
-                    print("RuntimeError in critic 1", e)
-                    values = self.agent.critic(x).detach().cpu().numpy().flatten()  # No batching?
+                    x = obs_tensor.to(self.device)
+                values = self.agent.critic(x).detach().cpu().numpy().flatten()  # No batching?
 
             actions = np.stack(buffer.actions)
             log_probs = np.stack(buffer.log_probs)

@@ -63,7 +63,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
             if not isinstance(observations, list):
                 observations = [observations]
 
-            if all(policy == policies[0] for policy in policies):
+            if not isinstance(policies[0], HardcodedAgent) and all(policy == policies[0] for policy in policies):
                 policy = policies[0]
                 if isinstance(observations[0], tuple):
                     obs = tuple(np.concatenate([obs[i] for obs in observations], axis=0)
@@ -129,13 +129,13 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
             tick = 0 if do_selector else tick + 1
 
             # to allow different action spaces, pad out short ones to longest length (assume later unpadding in parser)
-            length = max([a.shape[0] for a in all_actions])
-            padded_actions = []
-            for a in all_actions:
-                action = np.pad(a.astype('float64'), (0, length - a.size), 'constant', constant_values=np.NAN)
-                padded_actions.append(action)
-
-            all_actions = padded_actions
+            # length = max([a.shape[0] for a in all_actions])
+            # padded_actions = []
+            # for a in all_actions:
+            #     action = np.pad(a.astype('float64'), (0, length - a.size), 'constant', constant_values=np.NAN)
+            #     padded_actions.append(action)
+            #
+            # all_actions = padded_actions
             # TEST OUT ABOVE TO DEAL WITH VARIABLE LENGTH
 
             all_actions = np.vstack(all_actions)
