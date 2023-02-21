@@ -126,6 +126,8 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
                     index += 1
 
             do_selector = do_selector_action(selector_skip_k, tick) if selector_skip_k is not None else True
+            if policies[0].deterministic:
+                do_selector = True
             tick = 0 if do_selector else tick + 1
 
             # to allow different action spaces, pad out short ones to longest length (assume later unpadding in parser)
