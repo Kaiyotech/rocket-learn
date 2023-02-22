@@ -40,7 +40,6 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
         random_resets = scoreboard.random_resets
         scoreboard.random_resets = not evaluate
     observations, info = env.reset(return_info=True)
-    tick = [0] * 6
     result = 0
 
     last_state = info['state']  # game_state for obs_building of other agents
@@ -53,8 +52,9 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
     ]
 
     with torch.no_grad():
-        do_selector = [True] * 6
-        last_actions = [None] * 6
+        tick = [0] * len(policies)
+        do_selector = [True] * len(policies)
+        last_actions = [None] * len(policies)
         while True:
             all_indices = []
             all_actions = []
