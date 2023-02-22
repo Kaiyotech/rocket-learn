@@ -39,7 +39,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
         random_resets = scoreboard.random_resets
         scoreboard.random_resets = not evaluate
     observations, info = env.reset(return_info=True)
-    tick = 0
+    tick = [0] * 6
     result = 0
 
     last_state = info['state']  # game_state for obs_building of other agents
@@ -52,7 +52,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
     ]
 
     with torch.no_grad():
-        do_selector = True
+        do_selector = [True] * 6
         last_actions = [None] * 6
         while True:
             all_indices = []
@@ -75,7 +75,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
                 action_indices = policy.sample_action(dist)
                 log_probs = policy.log_prob(dist, action_indices)
 
-                if do_selector:
+                if do_selector[0]:
                     actions = policy.env_compatible(action_indices)
                     last_actions = actions
 
@@ -108,7 +108,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
                         action_indices = policy.sample_action(dist)[0]
                         log_probs = policy.log_prob(dist, action_indices).item()
 
-                        if do_selector:
+                        if do_selector[index]:
                             actions = policy.env_compatible(action_indices)
                             last_actions[index] = actions
 
@@ -125,10 +125,15 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
 
                     index += 1
 
-            do_selector = do_selector_action(selector_skip_k, tick) if selector_skip_k is not None else True
-            if policies[0].deterministic:
-                do_selector = True
-            tick = 0 if do_selector else tick + 1
+            if selector_skip_k is not None:
+                for i in range(len(do_selector)):
+                    do_selector[i] = do_selector_action(selector_skip_k, tick[i])
+                    if policies[i].deterministic:
+                        do_selector[i] = True
+            else:
+                do_selector = [True] * 6
+            for i in range(len(tick)):
+                tick[i] = 0 if do_selector[i] else tick[i] + 1
 
             # to allow different action spaces, pad out short ones to longest length (assume later unpadding in parser)
             # length = max([a.shape[0] for a in all_actions])
