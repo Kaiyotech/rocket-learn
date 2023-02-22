@@ -68,6 +68,7 @@ class RedisRolloutWorker:
         self.name = name
 
         self.selector_skip_k = selector_skip_k
+        self.force_selector_choice = [False] * 6
 
         assert send_gamestates or send_obs, "Must have at least one of obs or states"
 
@@ -98,7 +99,7 @@ class RedisRolloutWorker:
         self.dynamic_gm = dynamic_gm
         self.gamemode_weights = gamemode_weights
         if self.gamemode_weights is None:
-            self.gamemode_weights = {'1v1': 1/3, '2v2': 1/3, '3v3': 1/3}
+            self.gamemode_weights = {'1v1': 1 / 3, '2v2': 1 / 3, '3v3': 1 / 3}
         assert sum(self.gamemode_weights.values()) == 1, "gamemode_weights must sum to 1"
         self.target_weights = copy.copy(self.gamemode_weights)
         # change weights from percentage of experience desired to percentage of gamemodes necessary (approx)
@@ -106,7 +107,8 @@ class RedisRolloutWorker:
         for k in self.current_weights.keys():
             b, o = k.split("v")
             self.current_weights[k] /= int(b)
-        self.current_weights = {k: self.current_weights[k] / (sum(self.current_weights.values()) + 1e-8) for k in self.current_weights.keys()}
+        self.current_weights = {k: self.current_weights[k] / (sum(self.current_weights.values()) + 1e-8) for k in
+                                self.current_weights.keys()}
         self.mean_exp_grant = {'1v1': 1000, '2v2': 2000, '3v3': 3000}
         self.ema_alpha = gamemode_weight_ema_alpha
         self.local_cache_name = local_cache_name
@@ -124,7 +126,7 @@ class RedisRolloutWorker:
 
         # currently doesn't rebuild, if the old is there, reuse it.
         if self.local_cache_name:
-            self.sql = sql.connect('redis-model-cache-'+local_cache_name+'.db')
+            self.sql = sql.connect('redis-model-cache-' + local_cache_name + '.db')
             # if the table doesn't exist in the database, make it
             self.sql.execute("""
                 CREATE TABLE if not exists MODELS (
@@ -215,8 +217,6 @@ class RedisRolloutWorker:
         k = np.random.choice(len(matchups), p=qualities / qualities.sum())
         return [-1 if i == -1 else keys[i] for i in matchups[k]], \
                [latest_rating if i == -1 else values[i] for i in matchups[k]]
-
-
 
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
@@ -325,7 +325,8 @@ class RedisRolloutWorker:
                 print("Running evaluation game with versions:", version_info)
                 result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents, evaluate=True,
                                                                               scoreboard=self.scoreboard,
-                                                                              selector_skip_k=self.selector_skip_k)
+                                                                              selector_skip_k=self.selector_skip_k,
+                                                                              force_selector_choice=self.force_selector_choice)
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
             else:
@@ -333,10 +334,12 @@ class RedisRolloutWorker:
                     print("Generating rollout with versions:", version_info)
 
                 try:
-                    rollouts, result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents,
-                                                                                            evaluate=False,
-                                                                                            scoreboard=self.scoreboard,
-                                                                                            selector_skip_k=self.selector_skip_k)
+                    rollouts, result = rocket_learn.utils.generate_episode.generate_episode(
+                        self.env, agents,
+                        evaluate=False,
+                        scoreboard=self.scoreboard,
+                        selector_skip_k=self.selector_skip_k,
+                        force_selector_choice=self.force_selector_choice)
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
                         print(" ** Rollout Generation Error: Restarting Generation ** ")
