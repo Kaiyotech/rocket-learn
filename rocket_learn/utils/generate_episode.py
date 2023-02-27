@@ -128,10 +128,11 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
 
             if selector_skip_k is not None:
                 for i in range(len(do_selector)):
-                    do_selector[i] = do_selector_action(selector_skip_k, tick[i])
-                    if policies[i].deterministic or force_selector_choice[i]:
-                        do_selector[i] = True
-                        force_selector_choice[i] = False
+                    if not isinstance(policies[i], HardcodedAgent):
+                        do_selector[i] = do_selector_action(selector_skip_k, tick[i])
+                        if policies[i].deterministic or force_selector_choice[i]:
+                            do_selector[i] = True
+                            force_selector_choice[i] = False
             else:
                 do_selector = [True] * 6
             for i in range(len(tick)):
