@@ -139,13 +139,13 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
                 tick[i] = 0 if do_selector[i] else tick[i] + 1
 
             # to allow different action spaces, pad out short ones to longest length (assume later unpadding in parser)
-            # length = max([a.shape[0] for a in all_actions])
-            # padded_actions = []
-            # for a in all_actions:
-            #     action = np.pad(a.astype('float64'), (0, length - a.size), 'constant', constant_values=np.NAN)
-            #     padded_actions.append(action)
-            #
-            # all_actions = padded_actions
+            length = max([a.shape[0] for a in all_actions])
+            padded_actions = []
+            for a in all_actions:
+                action = np.pad(a.astype('float64'), (0, length - a.size), 'constant', constant_values=np.NAN)
+                padded_actions.append(action)
+
+            all_actions = padded_actions
             # TEST OUT ABOVE TO DEAL WITH VARIABLE LENGTH
 
             all_actions = np.vstack(all_actions)
