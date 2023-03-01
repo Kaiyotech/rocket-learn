@@ -30,9 +30,11 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         if isinstance(env._match._state_setter, DynamicGMSetter):  # noqa
             state_setter = env._match._state_setter.setter  # noqa
             env._match._state_setter.setter = eval_setter  # noqa
+            env.update_settings(boost_consumption=1)  # remove infinite boost
         else:
             state_setter = env._match._state_setter  # noqa
             env._match._state_setter = eval_setter  # noqa
+            env.update_settings(boost_consumption=1)  # remove infinite boost
 
         env._match._reward_fn = ConstantReward()  # noqa Save some cpu cycles
 
