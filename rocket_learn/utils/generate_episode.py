@@ -13,7 +13,7 @@ from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
 
-def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, selector_skip_k=None,
+def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None, selector_skip_k=None,
                      force_selector_choice=None) -> (List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
@@ -29,10 +29,10 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, select
         env._match._terminal_conditions = [game_condition, GoalScoredCondition()]  # noqa
         if isinstance(env._match._state_setter, DynamicGMSetter):  # noqa
             state_setter = env._match._state_setter.setter  # noqa
-            env._match._state_setter.setter = DefaultState()  # noqa
+            env._match._state_setter.setter = eval_setter  # noqa
         else:
             state_setter = env._match._state_setter  # noqa
-            env._match._state_setter = DefaultState()  # noqa
+            env._match._state_setter = eval_setter  # noqa
 
         env._match._reward_fn = ConstantReward()  # noqa Save some cpu cycles
 

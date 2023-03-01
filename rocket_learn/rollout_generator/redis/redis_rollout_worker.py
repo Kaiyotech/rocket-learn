@@ -14,6 +14,8 @@ from rlgym.envs import Match
 from rlgym.gamelaunch import LaunchPreference
 from rlgym.gym import Gym
 
+from rlgym.utils.state_setters import DefaultState
+
 import rocket_learn.agent.policy
 import rocket_learn.utils.generate_episode
 from rocket_learn.rollout_generator.redis.utils import _unserialize_model, MODEL_LATEST, WORKER_IDS, OPPONENT_MODELS, \
@@ -62,8 +64,10 @@ class RedisRolloutWorker:
                  pipeline_limit_bytes=10_000_000,
                  gamemode_weight_ema_alpha=0.02,
                  selector_skip_k=None,
+                 eval_setter=DefaultState(),
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
+        self.eval_setter = eval_setter
         self.redis = redis
         self.name = name
 
@@ -326,7 +330,8 @@ class RedisRolloutWorker:
                 result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents, evaluate=True,
                                                                               scoreboard=self.scoreboard,
                                                                               selector_skip_k=self.selector_skip_k,
-                                                                              force_selector_choice=self.force_selector_choice)
+                                                                              force_selector_choice=self.force_selector_choice,
+                                                                              eval_setter=self.eval_setter)
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
             else:
