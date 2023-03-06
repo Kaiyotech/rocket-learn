@@ -73,7 +73,6 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                                 for i in range(len(observations[0])))
                 else:
                     obs = np.concatenate(observations, axis=0)
-
                 dist = policy.get_action_distribution(obs)
                 action_indices = policy.sample_action(dist)
                 log_probs = policy.log_prob(dist, action_indices)
@@ -88,7 +87,6 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 all_indices.extend(list(action_indices.numpy()))
                 all_actions.extend(list(actions))
                 all_log_probs.extend(list(log_probs.numpy()))
-
             else:
                 index = 0
                 for policy, obs in zip(policies, observations):

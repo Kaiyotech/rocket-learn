@@ -51,7 +51,7 @@ class RedisRolloutWorker:
     """
 
     def __init__(self, redis: Redis, name: str, match: Match,
-                 past_version_prob=.2, evaluation_prob=0.01, sigma_target=2,
+                 past_version_prob=.2, evaluation_prob=0.01, sigma_target=1,
                  dynamic_gm=True, streamer_mode=False, send_gamestates=True,
                  send_obs=True, scoreboard=None, pretrained_agents=None,
                  human_agent=None, force_paging=False, auto_minimize=True,
@@ -65,7 +65,7 @@ class RedisRolloutWorker:
                  gamemode_weight_ema_alpha=0.02,
                  selector_skip_k=None,
                  eval_setter=DefaultState(),
-                 ):
+                 full_team_evaluations=False):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
         self.redis = redis
@@ -117,6 +117,8 @@ class RedisRolloutWorker:
         self.ema_alpha = gamemode_weight_ema_alpha
         self.local_cache_name = local_cache_name
 
+        self.full_team_evaluations = full_team_evaluations
+
         self.uuid = str(uuid4())
         self.redis.rpush(WORKER_IDS, self.uuid)
 
@@ -156,7 +158,9 @@ class RedisRolloutWorker:
 
     def _get_opponent_ids(self, n_new, n_old, pretrained_choice):
         # Get qualities
-        gamemode = f"{(n_new + n_old) // 2}v{(n_new + n_old) // 2}"
+        assert (n_new + n_old) % 2 == 0 or (n_new == 1 and n_old == 0)
+        per_team = (n_new + n_old) // 2
+        gamemode = f"{per_team}v{per_team}"
         gamemode = '1v0' if gamemode == '0v0' else gamemode
         latest_id = self.redis.get(LATEST_RATING_ID).decode("utf-8")
         latest_key = f"{latest_id}-stochastic"
@@ -172,11 +176,17 @@ class RedisRolloutWorker:
             sigmas = np.array([r.sigma for r in values])
             probs = np.clip(sigmas - self.sigma_target, a_min=0, a_max=None)
             s = probs.sum()
-            if s == 0 or np.random.normal(0, 1) > self.sigma_target:
-                probs = np.ones_like(probs) / len(probs)
+            if s == 0:  # No versions with high sigma available
+                if np.random.normal(0, self.sigma_target) > 1:
+                    # Some chance of doing a match with random versions, so they might correct themselves
+                    probs = np.ones_like(probs) / len(probs)
+                else:
+                    return [-1] * n_old, [latest_rating] * n_old
             else:
                 probs /= s
             versions = [np.random.choice(len(keys), p=probs)]
+            if self.full_team_evaluations:
+                versions = versions * per_team
             target_rating = values[versions[0]]
             n_old -= 1
         elif pretrained_choice is not None:  # pretrained agent chosen, just need index generation
@@ -185,7 +195,6 @@ class RedisRolloutWorker:
                 index = np.random.randint(0, n_new + n_old)
                 matchups[index] = 'na'
             return matchups, ratings.values()
-
         else:
             if n_new == 0:  # Would-be evaluation game, but not enough agents
                 n_new = n_old
@@ -198,29 +207,50 @@ class RedisRolloutWorker:
         # This is to prevent unrealistic scenarios,
         # like for instance ratings of [100, 0] vs [100, 0], which is technically fair but not useful
         probs = np.zeros(len(keys))
-        for i, rating in enumerate(values):
-            if n_new == 0 and i == versions[0]:
-                continue  # Don't add more of the same agent in evaluation matches
-            p = probability_NvsM([rating], [target_rating])
-            probs[i] = (p * (1 - p)) ** (2 / (n_old + n_new))  # Be a little bit less strict the more players there are
-        probs /= probs.sum()
+        if n_new == 0 and self.full_team_evaluations:
+            for i, rating in enumerate(values):
+                if i == versions[0]:
+                    p = 0  # Don't add more of the same agent in evaluation matches
+                else:
+                    p = probability_NvsM([rating] * per_team, [target_rating] * per_team)
+                probs[i] = p
+            opponent = np.random.choice(len(probs), p=probs)
+            if np.random.random() < 0.5:  # Randomly do blue/orange
+                versions = versions + [opponent] * per_team
+            else:
+                versions = [opponent] * per_team + versions
+            return [keys[i] for i in versions], [values[i] for i in versions]
+        else:
+            for i, rating in enumerate(values):
+                if n_new == 0 and i == versions[0]:
+                    continue  # Don't add more of the same agent in evaluation matches
+                p = probability_NvsM([rating], [target_rating])
+                probs[i] = (p * (1 - p)) ** ((n_new + n_old) // 2)  # Be less lenient the more players there are
+            probs /= probs.sum()
 
-        old_versions = np.random.choice(len(probs), size=n_old, p=probs, replace=True).tolist()
-        versions += old_versions
+            old_versions = np.random.choice(len(probs), size=n_old, p=probs, replace=True).tolist()
+            versions += old_versions
 
-        # Then calculate the full matchup, with just permutations of the selected versions (weighted by fairness)
-        matchups = []
-        qualities = []
-        for perm in itertools.permutations(versions):
-            it_ratings = [latest_rating if v == -1 else values[v] for v in perm]
-            mid = len(it_ratings) // 2
-            p = probability_NvsM(it_ratings[:mid], it_ratings[mid:])
-            matchups.append(perm)
-            qualities.append(p * (1 - p))  # From AlphaStar
-        qualities = np.array(qualities)
-        k = np.random.choice(len(matchups), p=qualities / qualities.sum())
-        return [-1 if i == -1 else keys[i] for i in matchups[k]], \
-               [latest_rating if i == -1 else values[i] for i in matchups[k]]
+            # Then calculate the full matchup, with just permutations of the selected versions (weighted by fairness)
+            matchups = []
+            qualities = []
+            for perm in itertools.permutations(versions):
+                it_ratings = [latest_rating if v == -1 else values[v] for v in perm]
+                mid = len(it_ratings) // 2
+                p = probability_NvsM(it_ratings[:mid], it_ratings[mid:])
+                if n_new == 0 and set(perm[:mid]) == set(perm[mid:]):  # Don't want team against team
+                    p = 0
+                matchups.append(perm)
+                qualities.append(p * (1 - p))  # From AlphaStar
+            qualities = np.array(qualities)
+            s = qualities.sum()
+            if s == 0:
+                return [-1] * (n_new + n_old), [latest_rating] * (n_new + n_old)
+            k = np.random.choice(len(matchups), p=qualities / s)
+            return [-1 if i == -1 else keys[i] for i in matchups[k]], \
+                   [latest_rating if i == -1 else values[i] for i in matchups[k]]
+
+
 
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
@@ -248,15 +278,18 @@ class RedisRolloutWorker:
 
         return model
 
-    def select_gamemode(self):
+    def select_gamemode(self, equal_likelihood):
 
         emp_weight = {k: self.mean_exp_grant[k] / (sum(self.mean_exp_grant.values()) + 1e-8)
                       for k in self.mean_exp_grant.keys()}
         cor_weight = {k: self.gamemode_weights[k] / emp_weight[k] for k in self.gamemode_weights.keys()}
         self.current_weights = {k: cor_weight[k] / (sum(cor_weight.values()) + 1e-8) for k in cor_weight}
         mode = np.random.choice(list(self.current_weights.keys()), p=list(self.current_weights.values()))
+        if equal_likelihood:
+            mode = np.random.choice(list(self.current_weights.keys()))
         b, o = mode.split("v")
         return int(b), int(o)
+
 
     def run(self):  # Mimics Thread
         """
@@ -289,10 +322,15 @@ class RedisRolloutWorker:
             n += 1
             pretrained_choice = None
 
+            evaluate = np.random.random() < self.evaluation_prob
+
             if self.dynamic_gm:
-                blue, orange = self.select_gamemode()
+                blue, orange = self.select_gamemode(equal_likelihood=evaluate)
             elif self.match.agents == 1:
                 blue = 1
+                orange = 0
+            elif self.match._spawn_opponents is False:  # noqa
+                blue = self.match.agents
                 orange = 0
             else:
                 blue = orange = self.match.agents // 2
@@ -313,7 +351,10 @@ class RedisRolloutWorker:
                 # TODO customizable past agent selection, should team only be same agent?
                 agents, pretrained_choice, versions, ratings = self._generate_matchup(blue + orange,
                                                                                       latest_version,
-                                                                                      pretrained_choice)
+                                                                                      pretrained_choice,
+                                                                                      evaluate)
+
+            evaluate = not any(isinstance(v, int) and v < 0 for v in versions)  # Might be changed in matchup code
 
             version_info = []
             for v, r in zip(versions, ratings):
@@ -324,8 +365,7 @@ class RedisRolloutWorker:
                 else:
                     version_info.append(f"{v} ({r.mu:.2f}±{2 * r.sigma:.2f})")
 
-            if not any(isinstance(v, int) and v < 0 for v in versions) \
-                    and not self.streamer_mode and self.human_agent is None:
+            if evaluate and not self.streamer_mode and self.human_agent is None:
                 print("Running evaluation game with versions:", version_info)
                 result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents, evaluate=True,
                                                                               scoreboard=self.scoreboard,
@@ -418,26 +458,22 @@ class RedisRolloutWorker:
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
 
-    def _generate_matchup(self, n_agents, latest_version, pretrained_choice):
-        n_old = 0
-        if n_agents > 1:
-            r = np.random.random()
-            rand_choice = (r - self.evaluation_prob) / (1 - self.evaluation_prob)
-
-            if r < self.evaluation_prob:
-                n_old = n_agents
-            else:
-                rand_choice = (r - self.evaluation_prob) / (1 - self.evaluation_prob)
-                if rand_choice < self.past_version_prob:
-                    n_old = np.random.randint(low=1, high=n_agents)
-                elif rand_choice < (self.past_version_prob + self.pretrained_total_prob):
-                    wheel_prob = self.past_version_prob
-                    for agent in self.pretrained_agents:
-                        wheel_prob += self.pretrained_agents[agent]
-                        if rand_choice < wheel_prob:
-                            pretrained_choice = agent
-                            n_old = np.random.randint(low=1, high=n_agents)
-                            break
+    def _generate_matchup(self, n_agents, latest_version, pretrained_choice, evaluate):
+        if evaluate:
+            n_old = n_agents
+        else:
+            n_old = 0
+            rand_choice = np.random.random()
+            if rand_choice < self.past_version_prob:
+                n_old = np.random.randint(low=1, high=n_agents)
+            elif rand_choice < (self.past_version_prob + self.pretrained_total_prob):
+                wheel_prob = self.past_version_prob
+                for agent in self.pretrained_agents:
+                    wheel_prob += self.pretrained_agents[agent]
+                    if rand_choice < wheel_prob:
+                        pretrained_choice = agent
+                        n_old = np.random.randint(low=1, high=n_agents)
+                        break
         n_new = n_agents - n_old
         versions, ratings = self._get_opponent_ids(n_new, n_old, pretrained_choice)
         agents = []
