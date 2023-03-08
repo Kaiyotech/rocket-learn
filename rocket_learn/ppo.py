@@ -363,8 +363,8 @@ class PPO:
         tot_value_loss = 0
         total_kl_div = 0
         tot_clipped = 0
-        tot_kl_other_models = np.zeros(len(self.kl_models_weights))
-        tot_kl_coeffs = np.zeros(len(self.kl_models_weights))
+        tot_kl_other_models = np.zeros(len(self.kl_models_weights)) if self.kl_models_weights is not None else np.zeros(1)
+        tot_kl_coeffs = np.zeros(len(self.kl_models_weights)) if self.kl_models_weights is not None else np.zeros(1)
 
         n = 0
 
@@ -506,7 +506,7 @@ class PPO:
             "ppo/update_magnitude": th.dist(precompute, postcompute, p=2),
         }
 
-        if len(self.kl_models_weights) > 0:
+        if self.kl_models_weights is not None and len(self.kl_models_weights) > 0:
             log_dict.update({f"ppo/kl_div_model_{i}": tot_kl_other_models[i] / n
                              for i in range(len(self.kl_models_weights))})
             log_dict.update({f"ppo/kl_coeff_model_{i}": tot_kl_coeffs[i]
