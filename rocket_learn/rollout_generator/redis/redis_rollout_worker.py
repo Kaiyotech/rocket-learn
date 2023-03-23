@@ -9,12 +9,15 @@ from uuid import uuid4
 import sqlite3 as sql
 
 import numpy as np
+import rlgym.gym
+
 from redis import Redis
 from rlgym.envs import Match
 from rlgym.gamelaunch import LaunchPreference
 from rlgym.gym import Gym
 
 from rlgym.utils.state_setters import DefaultState
+import rlgym_sim
 
 import rocket_learn.agent.policy
 import rocket_learn.utils.generate_episode
@@ -67,6 +70,7 @@ class RedisRolloutWorker:
                  eval_setter=DefaultState(),
                  full_team_evaluations=False,
                  epic_rl_exe_path=None,
+                 simulator=False,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
@@ -154,10 +158,13 @@ class RedisRolloutWorker:
         self.set_team_size = state_setter.set_team_size
         match._state_setter = state_setter
         self.match = match
-        self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
-                       use_injector=True, force_paging=force_paging, raise_on_crash=True, auto_minimize=auto_minimize,
-                       epic_rl_exe_path=epic_rl_exe_path
-                       )
+        if simulator:
+            self.env = rlgym_sim.gym.Gym(match=self.match, pipe_id=os.getpid())
+        else:
+            self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
+                           use_injector=True, force_paging=force_paging, raise_on_crash=True, auto_minimize=auto_minimize,
+                           epic_rl_exe_path=epic_rl_exe_path
+                           )
         self.total_steps_generated = 0
 
     def _get_opponent_ids(self, n_new, n_old, pretrained_choice):
