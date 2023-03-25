@@ -17,7 +17,6 @@ from rlgym.gamelaunch import LaunchPreference
 from rlgym.gym import Gym
 
 from rlgym.utils.state_setters import DefaultState
-import rlgym_sim
 
 import rocket_learn.agent.policy
 import rocket_learn.utils.generate_episode
@@ -159,7 +158,8 @@ class RedisRolloutWorker:
         match._state_setter = state_setter
         self.match = match
         if simulator:
-            self.env = rlgym_sim.gym.Gym(match=self.match, pipe_id=os.getpid())
+            import rlgym_sim
+            self.env = rlgym_sim.gym.Gym(match=self.match, copy_gamestate_every_step=True)
         else:
             self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
                            use_injector=True, force_paging=force_paging, raise_on_crash=True, auto_minimize=auto_minimize,
