@@ -9,7 +9,6 @@ from uuid import uuid4
 import sqlite3 as sql
 
 import numpy as np
-import rlgym.gym
 
 from redis import Redis
 from rlgym.envs import Match
