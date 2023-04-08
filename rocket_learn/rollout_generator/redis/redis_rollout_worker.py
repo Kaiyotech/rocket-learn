@@ -86,7 +86,8 @@ class RedisRolloutWorker:
         self.pretrained_total_prob = 0
         if pretrained_agents is not None:
             self.pretrained_agents = pretrained_agents
-            self.pretrained_total_prob = sum([self.pretrained_agents[key] for key in self.pretrained_agents])
+            self.pretrained_total_prob = sum(
+                [self.pretrained_agents[key] for key in self.pretrained_agents])
 
         self.human_agent = human_agent
         self.force_old_deterministic = force_old_deterministic
@@ -110,7 +111,8 @@ class RedisRolloutWorker:
         self.gamemode_weights = gamemode_weights
         if self.gamemode_weights is None:
             self.gamemode_weights = {'1v1': 1 / 3, '2v2': 1 / 3, '3v3': 1 / 3}
-        assert sum(self.gamemode_weights.values()) == 1, "gamemode_weights must sum to 1"
+        assert sum(self.gamemode_weights.values()
+                   ) == 1, "gamemode_weights must sum to 1"
         self.target_weights = copy.copy(self.gamemode_weights)
         # change weights from percentage of experience desired to percentage of gamemodes necessary (approx)
         self.current_weights = copy.copy(self.gamemode_weights)
@@ -138,7 +140,8 @@ class RedisRolloutWorker:
 
         # currently doesn't rebuild, if the old is there, reuse it.
         if self.local_cache_name:
-            self.sql = sql.connect('redis-model-cache-' + local_cache_name + '.db')
+            self.sql = sql.connect(
+                'redis-model-cache-' + local_cache_name + '.db')
             # if the table doesn't exist in the database, make it
             self.sql.execute("""
                 CREATE TABLE if not exists MODELS (
@@ -185,7 +188,8 @@ class RedisRolloutWorker:
         latest_rating = ratings[latest_key]
         keys, values = zip(*ratings.items())
 
-        if n_new == 0 and len(values) >= n_old:  # Evaluation game, try to find agents with high sigma
+        # Evaluation game, try to find agents with high sigma
+        if n_new == 0 and len(values) >= n_old:
             sigmas = np.array([r.sigma for r in values])
             probs = np.clip(sigmas - self.sigma_target, a_min=0, a_max=None)
             s = probs.sum()
@@ -225,8 +229,9 @@ class RedisRolloutWorker:
                 if i == versions[0]:
                     p = 0  # Don't add more of the same agent in evaluation matches
                 else:
-                    p = probability_NvsM([rating] * per_team, [target_rating] * per_team)
-                probs[i] = p
+                    p = probability_NvsM(
+                        [rating] * per_team, [target_rating] * per_team)
+                probs[i] = p * (1 - p)
             probs /= probs.sum()
             opponent = np.random.choice(len(probs), p=probs)
             if np.random.random() < 0.5:  # Randomly do blue/orange
@@ -239,20 +244,24 @@ class RedisRolloutWorker:
                 if n_new == 0 and i == versions[0]:
                     continue  # Don't add more of the same agent in evaluation matches
                 p = probability_NvsM([rating], [target_rating])
-                probs[i] = (p * (1 - p)) ** ((n_new + n_old) // 2)  # Be less lenient the more players there are
+                # Be less lenient the more players there are
+                probs[i] = (p * (1 - p)) ** max(1, (n_new + n_old) // 2)
             probs /= probs.sum()
 
-            old_versions = np.random.choice(len(probs), size=n_old, p=probs, replace=True).tolist()
+            old_versions = np.random.choice(
+                len(probs), size=n_old, p=probs, replace=True).tolist()
             versions += old_versions
 
             # Then calculate the full matchup, with just permutations of the selected versions (weighted by fairness)
             matchups = []
             qualities = []
             for perm in itertools.permutations(versions):
-                it_ratings = [latest_rating if v == -1 else values[v] for v in perm]
+                it_ratings = [latest_rating if v == -1 else values[v]
+                              for v in perm]
                 mid = len(it_ratings) // 2
                 p = probability_NvsM(it_ratings[:mid], it_ratings[mid:])
-                if n_new == 0 and set(perm[:mid]) == set(perm[mid:]):  # Don't want team against team
+                # Don't want team against team
+                if n_new == 0 and set(perm[:mid]) == set(perm[mid:]):
                     p = 0
                 matchups.append(perm)
                 qualities.append(p * (1 - p))  # From AlphaStar
@@ -262,9 +271,8 @@ class RedisRolloutWorker:
                 return [-1] * (n_new + n_old), [latest_rating] * (n_new + n_old)
             k = np.random.choice(len(matchups), p=qualities / s)
             return [-1 if i == -1 else keys[i] for i in matchups[k]], \
-                   [latest_rating if i == -1 else values[i] for i in matchups[k]]
-
-
+                   [latest_rating if i == -1 else values[i]
+                       for i in matchups[k]]
 
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
@@ -272,12 +280,14 @@ class RedisRolloutWorker:
         # if not, pull from REDIS and store in disk cache
 
         if self.local_cache_name:
-            models = self.sql.execute("SELECT parameters FROM MODELS WHERE id == ?", (version,)).fetchall()
+            models = self.sql.execute(
+                "SELECT parameters FROM MODELS WHERE id == ?", (version,)).fetchall()
             if len(models) == 0:
                 bytestream = self.redis.hget(OPPONENT_MODELS, version)
                 model = _unserialize_model(bytestream)
 
-                self.sql.execute('INSERT INTO MODELS (id, parameters) VALUES (?, ?)', (version, bytestream))
+                self.sql.execute(
+                    'INSERT INTO MODELS (id, parameters) VALUES (?, ?)', (version, bytestream))
                 self.sql.commit()
             else:
                 # should only ever be 1 version of parameters
@@ -288,7 +298,8 @@ class RedisRolloutWorker:
                 bytestream = models[0][0]
                 model = _unserialize_model(bytestream)
         else:
-            model = _unserialize_model(self.redis.hget(OPPONENT_MODELS, version))
+            model = _unserialize_model(
+                self.redis.hget(OPPONENT_MODELS, version))
 
         return model
 
@@ -296,14 +307,16 @@ class RedisRolloutWorker:
 
         emp_weight = {k: self.mean_exp_grant[k] / (sum(self.mean_exp_grant.values()) + 1e-8)
                       for k in self.mean_exp_grant.keys()}
-        cor_weight = {k: self.gamemode_weights[k] / emp_weight[k] for k in self.gamemode_weights.keys()}
-        self.current_weights = {k: cor_weight[k] / (sum(cor_weight.values()) + 1e-8) for k in cor_weight}
-        mode = np.random.choice(list(self.current_weights.keys()), p=list(self.current_weights.values()))
+        cor_weight = {
+            k: self.gamemode_weights[k] / emp_weight[k] for k in self.gamemode_weights.keys()}
+        self.current_weights = {
+            k: cor_weight[k] / (sum(cor_weight.values()) + 1e-8) for k in cor_weight}
+        mode = np.random.choice(list(self.current_weights.keys()), p=list(
+            self.current_weights.values()))
         if equal_likelihood:
             mode = np.random.choice(list(self.current_weights.keys()))
         b, o = mode.split("v")
         return int(b), int(o)
-
 
     def run(self):  # Mimics Thread
         """
@@ -318,7 +331,8 @@ class RedisRolloutWorker:
             available_version = self.redis.get(VERSION_LATEST)
             if available_version is None:
                 time.sleep(1)
-                continue  # Wait for version to be published (not sure if this is necessary?)
+                # Wait for version to be published (not sure if this is necessary?)
+                continue
             available_version = int(available_version)
 
             # Only try to download latest version when new
@@ -326,7 +340,8 @@ class RedisRolloutWorker:
                 model_bytes = self.redis.get(MODEL_LATEST)
                 if model_bytes is None:
                     time.sleep(1)
-                    continue  # This is maybe not necessary? Can't hurt to leave it in.
+                    # This is maybe not necessary? Can't hurt to leave it in.
+                    continue
                 latest_version = available_version
                 updated_agent = _unserialize_model(model_bytes)
                 self.current_agent = updated_agent
@@ -368,7 +383,8 @@ class RedisRolloutWorker:
                                                                                       pretrained_choice,
                                                                                       evaluate)
 
-            evaluate = not any(isinstance(v, int) and v < 0 for v in versions)  # Might be changed in matchup code
+            # Might be changed in matchup code
+            evaluate = not any(isinstance(v, int) and v < 0 for v in versions)
 
             version_info = []
             for v, r in zip(versions, ratings):
@@ -400,21 +416,25 @@ class RedisRolloutWorker:
                         selector_skip_k=self.selector_skip_k,
                         force_selector_choice=self.force_selector_choice)
 
-                    if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
-                        print(" ** Rollout Generation Error: Restarting Generation ** ")
+                    # Happens sometimes, unknown reason
+                    if len(rollouts[0].observations) <= 1:
+                        print(
+                            " ** Rollout Generation Error: Restarting Generation ** ")
                         continue
                 except EnvironmentError:
                     self.env.attempt_recovery()
                     continue
 
                 state = rollouts[0].infos[-2]["state"]
-                goal_speed = np.linalg.norm(state.ball.linear_velocity) * 0.036  # kph
+                goal_speed = np.linalg.norm(
+                    state.ball.linear_velocity) * 0.036  # kph
                 str_result = ('+' if result > 0 else "") + str(result)
                 episode_exp = len(rollouts[0].observations) * len(rollouts)
                 self.total_steps_generated += episode_exp
                 if self.dynamic_gm:
                     old_exp = self.mean_exp_grant[f"{blue}v{orange}"]
-                    self.mean_exp_grant[f"{blue}v{orange}"] = ((episode_exp - old_exp) * self.ema_alpha) + old_exp
+                    self.mean_exp_grant[f"{blue}v{orange}"] = (
+                        (episode_exp - old_exp) * self.ema_alpha) + old_exp
                 post_stats = f"Rollout finished after {len(rollouts[0].observations)} steps ({self.total_steps_generated} total steps), result was {str_result}"
                 if result != 0:
                     post_stats += f", goal speed: {goal_speed:.2f} kph"
@@ -441,7 +461,8 @@ class RedisRolloutWorker:
                 def send():
                     n_items = self.redis.rpush(ROLLOUTS, rollout_bytes)
                     if n_items >= 1000:
-                        print("Had to limit rollouts. Learner may have have crashed, or is overloaded")
+                        print(
+                            "Had to limit rollouts. Learner may have have crashed, or is overloaded")
                         self.redis.ltrim(ROLLOUTS, -100, -1)
 
                 send()
@@ -468,7 +489,8 @@ class RedisRolloutWorker:
                     n_items = self.red_pipe.execute()
                     self.pipeline_size = 0
                     if n_items[-1] >= 10000:
-                        print("Had to limit rollouts. Learner may have have crashed, or is overloaded")
+                        print(
+                            "Had to limit rollouts. Learner may have have crashed, or is overloaded")
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
 
@@ -489,7 +511,8 @@ class RedisRolloutWorker:
                         n_old = np.random.randint(low=1, high=n_agents)
                         break
         n_new = n_agents - n_old
-        versions, ratings = self._get_opponent_ids(n_new, n_old, pretrained_choice)
+        versions, ratings = self._get_opponent_ids(
+            n_new, n_old, pretrained_choice)
         agents = []
         for i, version in enumerate(versions):
             if version == -1:
@@ -497,9 +520,11 @@ class RedisRolloutWorker:
             elif pretrained_choice is not None and version == 'na':
                 agents.append(pretrained_choice)
             else:
-                selected_agent = self._get_past_model("-".join(version.split("-")[:-1]))
+                selected_agent = self._get_past_model(
+                    "-".join(version.split("-")[:-1]))
                 if self.force_old_deterministic and n_new != 0:
-                    versions[i] = versions[i].replace('stochastic', 'deterministic')
+                    versions[i] = versions[i].replace(
+                        'stochastic', 'deterministic')
                     version = version.replace('stochastic', 'deterministic')
 
                 if version.endswith("deterministic"):
