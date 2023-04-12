@@ -225,6 +225,8 @@ class RedisRolloutWorker:
             if v == 'na':
                 version_info.append(['Human', "N/A"])
             else:
+                if isinstance(v, int):
+                    v *= -1
                 version_info.append([v, f"{r.mu:.2f}±{2 * r.sigma:.2f}"])
 
         blue_versions, blue_ratings = list(zip(*version_info[:blue]))
