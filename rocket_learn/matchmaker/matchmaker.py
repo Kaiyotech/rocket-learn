@@ -69,7 +69,8 @@ class Matchmaker(BaseMatchmaker):
         latest_key = f"{latest_id}-stochastic"
 
         # This is the version of the most recent model (NOT just eval models)
-        latest_version = int(redis.get(VERSION_LATEST))
+        # Doing this instead of int(redis.get(VERSION_LATEST)) because the latest model is whatever is currently in rollout worker
+        latest_version = -1
 
         # This is a training match with all latest agents, no further logic necessary
         if not evaluate and n_non_latest == 0:

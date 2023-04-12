@@ -14,6 +14,7 @@ from redis import Redis
 from rlgym.envs import Match
 from rlgym.gamelaunch import LaunchPreference
 from rlgym.gym import Gym
+from tabulate import tabulate
 
 from rlgym.utils.state_setters import DefaultState
 
@@ -36,7 +37,6 @@ class RedisRolloutWorker:
      :param name: rollout worker name
      :param match: match object
      :param matchmaker: BaseMatchmaker object
-     :param past_version_prob: Odds of playing against previous checkpoints
      :param evaluation_prob: Odds of running an evaluation match
      :param sigma_target: Trueskill sigma target
      :param dynamic_gm: Pick game mode dynamically. If True, Match.team_size should be 3
@@ -55,7 +55,7 @@ class RedisRolloutWorker:
     """
 
     def __init__(self, redis: Redis, name: str, match: Match, matchmaker: BaseMatchmaker,
-                 past_version_prob=.2, evaluation_prob=0.01, sigma_target=1,
+                 evaluation_prob=0.01, sigma_target=1,
                  dynamic_gm=True, streamer_mode=False, send_gamestates=True,
                  send_obs=True, scoreboard=None, pretrained_agents: PretrainedAgents = None,
                  human_agent=None, force_paging=False, auto_minimize=True,
@@ -73,6 +73,7 @@ class RedisRolloutWorker:
                  simulator=False,
                  visualize=False,
                  dodge_deadzone=0.8,
+                 live_progress=True
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
@@ -106,7 +107,6 @@ class RedisRolloutWorker:
         self.current_agent = _unserialize_model(self.redis.get(MODEL_LATEST))
         if self.streamer_mode and self.deterministic_streamer:
             self.current_agent.deterministic = True
-        self.past_version_prob = past_version_prob
         self.evaluation_prob = evaluation_prob
         self.sigma_target = sigma_target
         self.send_gamestates = send_gamestates
@@ -173,6 +173,7 @@ class RedisRolloutWorker:
                            epic_rl_exe_path=epic_rl_exe_path
                            )
         self.total_steps_generated = 0
+        self.live_progress = live_progress
 
 
     @functools.lru_cache(maxsize=8)
@@ -218,6 +219,30 @@ class RedisRolloutWorker:
             mode = np.random.choice(list(self.current_weights.keys()))
         b, o = mode.split("v")
         return int(b), int(o)
+    
+    @staticmethod
+    def make_table(versions, ratings, blue, orange):
+        version_info = []
+        for v, r in zip(versions, ratings):
+            if v == 'na':
+                version_info.append(['Human', "N/A"])
+            else:
+                version_info.append([v, f"{r.mu:.2f}±{2 * r.sigma:.2f}"])
+
+        blue_versions, blue_ratings = list(zip(*version_info[:blue]))
+        orange_versions, orange_ratings = list(zip(*version_info[blue:]))
+
+        if blue < orange:
+            blue_versions += [""] * (orange - blue)
+            blue_ratings += [""] * (orange - blue)
+        elif orange < blue:
+            orange_versions += [""] * (blue - orange)
+            orange_ratings += [""] * (blue - orange)
+
+        table_str = tabulate(list(zip(blue_versions, blue_ratings, orange_versions, orange_ratings)),
+                             headers=["Blue", "rating", "Orange", "rating"], tablefmt="rounded_outline")
+
+        return table_str
 
     def run(self):  # Mimics Thread
         """
@@ -281,8 +306,8 @@ class RedisRolloutWorker:
                                                                                evaluate)
                 agents = []
                 for i, version in enumerate(versions):
-                    # Sometimes the most recent agent will be more recent than generate_matchup had, this gets around that
-                    if isinstance(version, int) and version < 0:
+                    if version == -1:
+                        versions[i] = latest_version
                         agents.append(self.current_agent)
                     else:
                         short_name = "-".join(version.split("-")[:-1])
@@ -303,17 +328,13 @@ class RedisRolloutWorker:
                             raise ValueError("Unknown version type")
                         agents.append(selected_agent)
 
-            version_info = []
-            for v, r in zip(versions, ratings):
-                if v == "human":
-                    version_info.append("Human_player")
-                else:
-                    version_info.append(f"{v} ({r.mu:.2f}±{2 * r.sigma:.2f})")
+            table_str = self.make_table(versions, ratings, blue, orange)
 
             if evaluate and not self.streamer_mode and self.human_agent is None:
-                print("Running evaluation game with versions:", version_info)
+                print("EVALUATION GAME\n" + table_str)
                 result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents, evaluate=True,
                                                                               scoreboard=self.scoreboard,
+                                                                              progress=self.live_progress,
                                                                               selector_skip_k=self.selector_skip_k,
                                                                               force_selector_choice=self.force_selector_choice,
                                                                               eval_setter=self.eval_setter)
@@ -321,7 +342,7 @@ class RedisRolloutWorker:
                 print("Evaluation finished, goal differential:", result)
             else:
                 if not self.streamer_mode:
-                    print("Generating rollout with versions:", version_info)
+                    print("ROLLOUT\n" + table_str)
 
                 try:
                     rollouts, result = rocket_learn.utils.generate_episode.generate_episode(
@@ -335,6 +356,7 @@ class RedisRolloutWorker:
                     if len(rollouts[0].observations) <= 1:
                         print(
                             " ** Rollout Generation Error: Restarting Generation ** ")
+                        print()
                         continue
                 except EnvironmentError:
                     self.env.attempt_recovery()
@@ -356,6 +378,7 @@ class RedisRolloutWorker:
 
                 if not self.streamer_mode:
                     print(post_stats)
+                    print()
 
             if not self.streamer_mode and not self.batch_mode:
                 rollout_data = encode_buffers(rollouts,
