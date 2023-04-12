@@ -375,10 +375,10 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 pretrained_qualities[gamemode].append(
                     (agent, rating.mu))
 
-        for gamemode in pretrained_qualities:
+        for gamemode in self.gamemodes:
             self.logger.log({
                 f"pretrained/qualities-{gamemode}": wandb.Table(columns=["name", "rating"], data=pretrained_qualities[gamemode])
-            })
+            }, commit=False)
 
         if self.gamemodes[0] != '1v0':
             self._plot_ratings()
