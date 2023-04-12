@@ -18,6 +18,6 @@ class BaseMatchmaker(ABC):
         :param n_agents: The number of agents to appear in the match.
         :param evaluate: A boolean representing whether or not the matchup generated is for an evaluation match.
 
-        :return: A tuple with 2 parallel lists and a bool. The first is a list of version names, the second is a list of ratings, the third is whether or not the match is an evaluation match.
+        :return: A tuple with 2 parallel lists and a bool. The first is a list of version names, the second is a list of ratings, the third is whether or not the match is an evaluation match. -1 in version name means latest.
         """
         raise NotImplementedError

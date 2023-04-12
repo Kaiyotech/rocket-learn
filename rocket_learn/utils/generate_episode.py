@@ -4,8 +4,10 @@ import numpy as np
 import torch
 from rlgym.gym import Gym
 from rlgym_sim.utils.reward_functions.common_rewards import ConstantReward
-from rlgym.utils.state_setters import DefaultState, StateWrapper
+from rlgym.utils.state_setters import DefaultState
 from rlgym.utils.terminal_conditions.common_conditions import GoalScoredCondition
+from tqdm import tqdm
+
 
 from rocket_learn.agent.policy import Policy
 from rocket_learn.agent.pretrained_policy import HardcodedAgent
@@ -13,12 +15,18 @@ from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
 
-def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None, selector_skip_k=None,
+def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None, progress=False, selector_skip_k=None,
                      force_selector_choice=None) -> Tuple[List[ExperienceBuffer], int]:
     """
     create experience buffer data by interacting with the environment(s)
     """
-    if evaluate:  # Change setup temporarily to play a normal game (approximately)
+    if progress:
+        progress = tqdm(unit=" steps")
+    else:
+        progress = None
+
+    # Change setup temporarily to play a normal game (approximately)
+    if evaluate:
         # tools is an optional dependency
         from rlgym_tools.extra_terminals.game_condition import GameCondition
         terminals = env._match._terminal_conditions  # noqa
@@ -55,6 +63,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         for _ in range(sum(latest_policy_indices))
     ]
 
+    b = o = 0
     with torch.no_grad():
         tick = [0] * len(policies)
         do_selector = [True] * len(policies)
@@ -183,8 +192,21 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 for exp_buf, obs, act, rew, log_prob in zip(rollouts, old_obs, all_indices, rewards, all_log_probs):
                     exp_buf.add_step(obs, act, rew, done, log_prob, info)
 
+            if progress is not None:
+                progress.update()
+                igt = progress.n * env._match._tick_skip / 120  # noqa
+                prog_str = f"{igt // 60:02.0f}:{igt % 60:02.0f} IGT"
+                if evaluate:
+                    prog_str += f", BLUE {b} - {o} ORANGE"
+                progress.set_postfix_str(prog_str)
+
             if done:
                 result += info["result"]
+                if info["result"] > 0:
+                    b += 1
+                elif info["result"] < 0:
+                    o += 1
+
                 if not evaluate:
                     break
                 elif game_condition.done:  # noqa
@@ -196,6 +218,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
 
     if scoreboard is not None:
         scoreboard.random_resets = random_resets  # noqa Checked above
+
+    if progress is not None:
+        progress.close()
 
     if evaluate:
         if isinstance(env._match._state_setter, DynamicGMSetter):  # noqa
