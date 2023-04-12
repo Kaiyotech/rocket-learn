@@ -18,9 +18,11 @@ from rlgym.gym import Gym
 from rlgym.utils.state_setters import DefaultState
 
 import rocket_learn.agent.policy
+from rocket_learn.agent.types import PretrainedAgents
 import rocket_learn.utils.generate_episode
+from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
 from rocket_learn.rollout_generator.redis.utils import _unserialize_model, MODEL_LATEST, WORKER_IDS, OPPONENT_MODELS, \
-    VERSION_LATEST, _serialize, ROLLOUTS, encode_buffers, decode_buffers, get_rating, LATEST_RATING_ID, \
+    VERSION_LATEST, _serialize, ROLLOUTS, encode_buffers, decode_buffers, get_rating, get_ratings, LATEST_RATING_ID, \
     EXPERIENCE_PER_MODE
 from rocket_learn.utils.util import probability_NvsM
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
@@ -33,6 +35,7 @@ class RedisRolloutWorker:
      :param redis: redis object
      :param name: rollout worker name
      :param match: match object
+     :param matchmaker: BaseMatchmaker object
      :param past_version_prob: Odds of playing against previous checkpoints
      :param evaluation_prob: Odds of running an evaluation match
      :param sigma_target: Trueskill sigma target
@@ -41,7 +44,7 @@ class RedisRolloutWorker:
      :param send_gamestates: Should gamestate data be sent back (increases data sent) - must send obs or gamestates
      :param send_obs: Should observations be send back (increases data sent) - must send obs or gamestates
      :param scoreboard: Scoreboard object
-     :param pretrained_agents: Dict{} of pretrained agents and their appearance probability
+     :param pretrained_agents: PretrainedAgents typed dict
      :param human_agent: human agent object. Sets a human match if not None
      :param force_paging: Should paging be forced
      :param auto_minimize: automatically minimize the launched rocket league instance
@@ -51,10 +54,10 @@ class RedisRolloutWorker:
      :param selector_skip_k: value to control the tick skip probability of the selector
     """
 
-    def __init__(self, redis: Redis, name: str, match: Match,
+    def __init__(self, redis: Redis, name: str, match: Match, matchmaker: BaseMatchmaker,
                  past_version_prob=.2, evaluation_prob=0.01, sigma_target=1,
                  dynamic_gm=True, streamer_mode=False, send_gamestates=True,
-                 send_obs=True, scoreboard=None, pretrained_agents=None,
+                 send_obs=True, scoreboard=None, pretrained_agents: PretrainedAgents = None,
                  human_agent=None, force_paging=False, auto_minimize=True,
                  local_cache_name=None,
                  force_old_deterministic=False,
@@ -66,7 +69,6 @@ class RedisRolloutWorker:
                  gamemode_weight_ema_alpha=0.02,
                  selector_skip_k=None,
                  eval_setter=DefaultState(),
-                 full_team_evaluations=False,
                  epic_rl_exe_path=None,
                  simulator=False,
                  visualize=False,
@@ -77,17 +79,19 @@ class RedisRolloutWorker:
         self.redis = redis
         self.name = name
 
+        self.matchmaker = matchmaker
+
         self.selector_skip_k = selector_skip_k
         self.force_selector_choice = [False] * 6
 
         assert send_gamestates or send_obs, "Must have at least one of obs or states"
 
         self.pretrained_agents = {}
-        self.pretrained_total_prob = 0
+        self.pretrained_agents_keymap = {}
         if pretrained_agents is not None:
             self.pretrained_agents = pretrained_agents
-            self.pretrained_total_prob = sum(
-                [self.pretrained_agents[key] for key in self.pretrained_agents])
+            for agent, config in pretrained_agents.items():
+                self.pretrained_agents_keymap[config["key"]] = agent
 
         self.human_agent = human_agent
         self.force_old_deterministic = force_old_deterministic
@@ -124,8 +128,6 @@ class RedisRolloutWorker:
         self.mean_exp_grant = {'1v1': 1000, '2v2': 2000, '3v3': 3000}
         self.ema_alpha = gamemode_weight_ema_alpha
         self.local_cache_name = local_cache_name
-
-        self.full_team_evaluations = full_team_evaluations
 
         self.uuid = str(uuid4())
         self.redis.rpush(WORKER_IDS, self.uuid)
@@ -172,107 +174,6 @@ class RedisRolloutWorker:
                            )
         self.total_steps_generated = 0
 
-    def _get_opponent_ids(self, n_new, n_old, pretrained_choice):
-        # Get qualities
-        assert (n_new + n_old) % 2 == 0 or (n_new == 1 and n_old == 0)
-        per_team = (n_new + n_old) // 2
-        gamemode = f"{per_team}v{per_team}"
-        gamemode = '1v0' if gamemode == '0v0' else gamemode
-        latest_id = self.redis.get(LATEST_RATING_ID).decode("utf-8")
-        latest_key = f"{latest_id}-stochastic"
-        if n_old == 0:
-            rating = get_rating(gamemode, latest_key, self.redis)
-            return [-1] * n_new, [rating] * n_new
-
-        ratings = get_rating(gamemode, None, self.redis)
-        latest_rating = ratings[latest_key]
-        keys, values = zip(*ratings.items())
-
-        # Evaluation game, try to find agents with high sigma
-        if n_new == 0 and len(values) >= n_old:
-            sigmas = np.array([r.sigma for r in values])
-            probs = np.clip(sigmas - self.sigma_target, a_min=0, a_max=None)
-            s = probs.sum()
-            if s == 0:  # No versions with high sigma available
-                if np.random.normal(0, self.sigma_target) > 1:
-                    # Some chance of doing a match with random versions, so they might correct themselves
-                    probs = np.ones_like(probs) / len(probs)
-                else:
-                    return [-1] * n_old, [latest_rating] * n_old
-            else:
-                probs /= s
-            versions = [np.random.choice(len(keys), p=probs)]
-            if self.full_team_evaluations:
-                versions = versions * per_team
-            target_rating = values[versions[0]]
-            n_old -= 1
-        elif pretrained_choice is not None:  # pretrained agent chosen, just need index generation
-            matchups = np.full((n_new + n_old), -1).tolist()
-            for i in range(n_old):
-                index = np.random.randint(0, n_new + n_old)
-                matchups[index] = 'na'
-            return matchups, ratings.values()
-        else:
-            if n_new == 0:  # Would-be evaluation game, but not enough agents
-                n_new = n_old
-                n_old = 0
-            versions = [-1] * n_new
-            target_rating = latest_rating
-
-        # Calculate 1v1 win prob against target
-        # All the agents included should hold their own (at least approximately)
-        # This is to prevent unrealistic scenarios,
-        # like for instance ratings of [100, 0] vs [100, 0], which is technically fair but not useful
-        probs = np.zeros(len(keys))
-        if n_new == 0 and self.full_team_evaluations:
-            for i, rating in enumerate(values):
-                if i == versions[0]:
-                    p = 0  # Don't add more of the same agent in evaluation matches
-                else:
-                    p = probability_NvsM(
-                        [rating] * per_team, [target_rating] * per_team)
-                probs[i] = p * (1 - p)
-            probs /= probs.sum()
-            opponent = np.random.choice(len(probs), p=probs)
-            if np.random.random() < 0.5:  # Randomly do blue/orange
-                versions = versions + [opponent] * per_team
-            else:
-                versions = [opponent] * per_team + versions
-            return [keys[i] for i in versions], [values[i] for i in versions]
-        else:
-            for i, rating in enumerate(values):
-                if n_new == 0 and i == versions[0]:
-                    continue  # Don't add more of the same agent in evaluation matches
-                p = probability_NvsM([rating], [target_rating])
-                # Be less lenient the more players there are
-                probs[i] = (p * (1 - p)) ** max(1, (n_new + n_old) // 2)
-            probs /= probs.sum()
-
-            old_versions = np.random.choice(
-                len(probs), size=n_old, p=probs, replace=True).tolist()
-            versions += old_versions
-
-            # Then calculate the full matchup, with just permutations of the selected versions (weighted by fairness)
-            matchups = []
-            qualities = []
-            for perm in itertools.permutations(versions):
-                it_ratings = [latest_rating if v == -1 else values[v]
-                              for v in perm]
-                mid = len(it_ratings) // 2
-                p = probability_NvsM(it_ratings[:mid], it_ratings[mid:])
-                # Don't want team against team
-                if n_new == 0 and set(perm[:mid]) == set(perm[mid:]):
-                    p = 0
-                matchups.append(perm)
-                qualities.append(p * (1 - p))  # From AlphaStar
-            qualities = np.array(qualities)
-            s = qualities.sum()
-            if s == 0:
-                return [-1] * (n_new + n_old), [latest_rating] * (n_new + n_old)
-            k = np.random.choice(len(matchups), p=qualities / s)
-            return [-1 if i == -1 else keys[i] for i in matchups[k]], \
-                   [latest_rating if i == -1 else values[i]
-                       for i in matchups[k]]
 
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
@@ -349,7 +250,6 @@ class RedisRolloutWorker:
                     self.current_agent.deterministic = True
 
             n += 1
-            pretrained_choice = None
 
             evaluate = np.random.random() < self.evaluation_prob
 
@@ -367,31 +267,46 @@ class RedisRolloutWorker:
 
             if self.human_agent:
                 n_new = blue + orange - 1
-                versions = ['na']
+                versions = ["human"]
 
                 agents = [self.human_agent]
                 for n in range(n_new):
                     agents.append(self.current_agent)
-                    versions.append(-1)
+                    versions.append(latest_version)
 
-                versions = [v if v != -1 else latest_version for v in versions]
                 ratings = ["na"] * len(versions)
             else:
-                # TODO customizable past agent selection, should team only be same agent?
-                agents, pretrained_choice, versions, ratings = self._generate_matchup(blue + orange,
-                                                                                      latest_version,
-                                                                                      pretrained_choice,
-                                                                                      evaluate)
-
-            # Might be changed in matchup code
-            evaluate = not any(isinstance(v, int) and v < 0 for v in versions)
+                versions, ratings, evaluate = self.matchmaker.generate_matchup(self.redis,
+                                                                               blue + orange,
+                                                                               evaluate)
+                agents = []
+                for i, version in enumerate(versions):
+                    # Sometimes the most recent agent will be more recent than generate_matchup had, this gets around that
+                    if isinstance(version, int) and version < 0:
+                        agents.append(self.current_agent)
+                    else:
+                        short_name = "-".join(version.split("-")[:-1])
+                        if short_name in self.pretrained_agents_keymap:
+                            selected_agent = self.pretrained_agents_keymap[short_name]
+                        else:
+                            selected_agent = self._get_past_model(short_name)
+                            if self.force_old_deterministic and n_new != 0:
+                                versions[i] = versions[i].replace(
+                                    'stochastic', 'deterministic')
+                                version = version.replace(
+                                    'stochastic', 'deterministic')
+                        if version.endswith("deterministic"):
+                            selected_agent.deterministic = True
+                        elif version.endswith("stochastic"):
+                            selected_agent.deterministic = False
+                        else:
+                            raise ValueError("Unknown version type")
+                        agents.append(selected_agent)
 
             version_info = []
             for v, r in zip(versions, ratings):
-                if pretrained_choice is not None and v == 'na':  # print name but don't send it back
-                    version_info.append(str(type(pretrained_choice).__name__))
-                elif v == 'na':
-                    version_info.append('Human_player')
+                if v == "human":
+                    version_info.append("Human_player")
                 else:
                     version_info.append(f"{v} ({r.mu:.2f}±{2 * r.sigma:.2f})")
 
@@ -494,45 +409,4 @@ class RedisRolloutWorker:
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
 
-    def _generate_matchup(self, n_agents, latest_version, pretrained_choice, evaluate):
-        if evaluate:
-            n_old = n_agents
-        else:
-            n_old = 0
-            rand_choice = np.random.random()
-            if rand_choice < self.past_version_prob:
-                n_old = np.random.randint(low=1, high=n_agents)
-            elif rand_choice < (self.past_version_prob + self.pretrained_total_prob):
-                wheel_prob = self.past_version_prob
-                for agent in self.pretrained_agents:
-                    wheel_prob += self.pretrained_agents[agent]
-                    if rand_choice < wheel_prob:
-                        pretrained_choice = agent
-                        n_old = np.random.randint(low=1, high=n_agents)
-                        break
-        n_new = n_agents - n_old
-        versions, ratings = self._get_opponent_ids(
-            n_new, n_old, pretrained_choice)
-        agents = []
-        for i, version in enumerate(versions):
-            if version == -1:
-                agents.append(self.current_agent)
-            elif pretrained_choice is not None and version == 'na':
-                agents.append(pretrained_choice)
-            else:
-                selected_agent = self._get_past_model(
-                    "-".join(version.split("-")[:-1]))
-                if self.force_old_deterministic and n_new != 0:
-                    versions[i] = versions[i].replace(
-                        'stochastic', 'deterministic')
-                    version = version.replace('stochastic', 'deterministic')
-
-                if version.endswith("deterministic"):
-                    selected_agent.deterministic = True
-                elif version.endswith("stochastic"):
-                    selected_agent.deterministic = False
-                else:
-                    raise ValueError("Unknown version type")
-                agents.append(selected_agent)
-        versions = [v if v != -1 else latest_version for v in versions]
-        return agents, pretrained_choice, versions, ratings
+    

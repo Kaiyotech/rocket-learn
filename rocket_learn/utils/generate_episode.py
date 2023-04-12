@@ -1,9 +1,9 @@
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 import torch
 from rlgym.gym import Gym
-from rlgym.utils.reward_functions.common_rewards import ConstantReward
+from rlgym_sim.utils.reward_functions.common_rewards import ConstantReward
 from rlgym.utils.state_setters import DefaultState, StateWrapper
 from rlgym.utils.terminal_conditions.common_conditions import GoalScoredCondition
 
@@ -14,16 +14,17 @@ from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
 
 def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None, selector_skip_k=None,
-                     force_selector_choice=None) -> (List[ExperienceBuffer], int):
+                     force_selector_choice=None) -> Tuple[List[ExperienceBuffer], int]:
     """
     create experience buffer data by interacting with the environment(s)
     """
     if evaluate:  # Change setup temporarily to play a normal game (approximately)
-        from rlgym_tools.extra_terminals.game_condition import GameCondition  # tools is an optional dependency
+        # tools is an optional dependency
+        from rlgym_tools.extra_terminals.game_condition import GameCondition
         terminals = env._match._terminal_conditions  # noqa
         reward = env._match._reward_fn  # noqa
-        game_condition = GameCondition(tick_skip=env._match._tick_skip, # noqa
-                                       seconds_per_goal_forfeit=10 * env._match._team_size, # noqa
+        game_condition = GameCondition(tick_skip=env._match._tick_skip,  # noqa
+                                       seconds_per_goal_forfeit=10 * env._match._team_size,  # noqa
                                        max_overtime_seconds=300,
                                        max_no_touch_seconds=30)  # noqa
         env._match._terminal_conditions = [game_condition, GoalScoredCondition()]  # noqa
@@ -46,7 +47,8 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
 
     last_state = info['state']  # game_state for obs_building of other agents
 
-    latest_policy_indices = [0 if isinstance(p, HardcodedAgent) else 1 for p in policies]
+    latest_policy_indices = [0 if isinstance(
+        p, HardcodedAgent) else 1 for p in policies]
     # rollouts for all latest_policies
     rollouts = [
         ExperienceBuffer(infos=[info])
@@ -107,7 +109,8 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     elif isinstance(policy, Policy):
                         dist = policy.get_action_distribution(obs)
                         action_indices = policy.sample_action(dist)[0]
-                        log_probs = policy.log_prob(dist, action_indices).item()
+                        log_probs = policy.log_prob(
+                            dist, action_indices).item()
 
                         if do_selector[index]:
                             actions = policy.env_compatible(action_indices)
@@ -129,7 +132,8 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             if selector_skip_k is not None:
                 for i in range(len(do_selector)):
                     if not isinstance(policies[i], HardcodedAgent):
-                        do_selector[i] = do_selector_action(selector_skip_k, tick[i])
+                        do_selector[i] = do_selector_action(
+                            selector_skip_k, tick[i])
                         if policies[i].deterministic or force_selector_choice[i]:
                             do_selector[i] = True
                             force_selector_choice[i] = False
@@ -142,7 +146,8 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             length = max([a.shape[0] for a in all_actions])
             padded_actions = []
             for a in all_actions:
-                action = np.pad(a.astype('float64'), (0, length - a.size), 'constant', constant_values=np.NAN)
+                action = np.pad(
+                    a.astype('float64'), (0, length - a.size), 'constant', constant_values=np.NAN)
                 padded_actions.append(action)
 
             all_actions = padded_actions
@@ -155,15 +160,23 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 observations, rewards = [observations], [rewards]
 
             # prune data that belongs to old agents
-            old_obs = [a for i, a in enumerate(old_obs) if latest_policy_indices[i] == 1]
-            all_indices = [d for i, d in enumerate(all_indices) if latest_policy_indices[i] == 1]
-            rewards = [r for i, r in enumerate(rewards) if latest_policy_indices[i] == 1]
-            all_log_probs = [r for i, r in enumerate(all_log_probs) if latest_policy_indices[i] == 1]
+            old_obs = [a for i, a in enumerate(
+                old_obs) if latest_policy_indices[i] == 1]
+            all_indices = [d for i, d in enumerate(
+                all_indices) if latest_policy_indices[i] == 1]
+            rewards = [r for i, r in enumerate(
+                rewards) if latest_policy_indices[i] == 1]
+            all_log_probs = [r for i, r in enumerate(
+                all_log_probs) if latest_policy_indices[i] == 1]
 
-            assert len(old_obs) == len(all_indices), str(len(old_obs)) + " obs, " + str(len(all_indices)) + " ind"
-            assert len(old_obs) == len(rewards), str(len(old_obs)) + " obs, " + str(len(rewards)) + " ind"
-            assert len(old_obs) == len(all_log_probs), str(len(old_obs)) + " obs, " + str(len(all_log_probs)) + " ind"
-            assert len(old_obs) == len(rollouts), str(len(old_obs)) + " obs, " + str(len(rollouts)) + " ind"
+            assert len(old_obs) == len(all_indices), str(
+                len(old_obs)) + " obs, " + str(len(all_indices)) + " ind"
+            assert len(old_obs) == len(rewards), str(
+                len(old_obs)) + " obs, " + str(len(rewards)) + " ind"
+            assert len(old_obs) == len(all_log_probs), str(
+                len(old_obs)) + " obs, " + str(len(all_log_probs)) + " ind"
+            assert len(old_obs) == len(rollouts), str(
+                len(old_obs)) + " obs, " + str(len(rollouts)) + " ind"
 
             # Might be different if only one agent?
             if not evaluate:  # Evaluation matches can be long, no reason to keep them in memory
