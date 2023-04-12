@@ -1,11 +1,10 @@
-from typing import List, Tuple
+from typing import List
 
 import numpy as np
 import torch
 from rlgym.gym import Gym
-from rlgym_sim.utils.reward_functions.common_rewards import ConstantReward
+from rlgym.utils.reward_functions.common_rewards import ConstantReward
 from rlgym.utils.state_setters import DefaultState
-from rlgym.utils.terminal_conditions.common_conditions import GoalScoredCondition
 from tqdm import tqdm
 
 
@@ -16,7 +15,7 @@ from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
 
 def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None, progress=False, selector_skip_k=None,
-                     force_selector_choice=None) -> Tuple[List[ExperienceBuffer], int]:
+                     force_selector_choice=None) -> (List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
     """
@@ -35,7 +34,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                                        seconds_per_goal_forfeit=10 * env._match._team_size,  # noqa
                                        max_overtime_seconds=300,
                                        max_no_touch_seconds=30)  # noqa
-        env._match._terminal_conditions = [game_condition, GoalScoredCondition()]  # noqa
+        env._match._terminal_conditions = [game_condition]  # noqa
         if isinstance(env._match._state_setter, DynamicGMSetter):  # noqa
             state_setter = env._match._state_setter.setter  # noqa
             env._match._state_setter.setter = eval_setter  # noqa
