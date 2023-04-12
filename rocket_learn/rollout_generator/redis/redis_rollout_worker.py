@@ -9,14 +9,13 @@ from uuid import uuid4
 import sqlite3 as sql
 
 import numpy as np
-
 from redis import Redis
 from rlgym.envs import Match
 from rlgym.gamelaunch import LaunchPreference
 from rlgym.gym import Gym
-from tabulate import tabulate
 
 from rlgym.utils.state_setters import DefaultState
+from tabulate import tabulate
 
 import rocket_learn.agent.policy
 from rocket_learn.agent.types import PretrainedAgents
@@ -73,8 +72,7 @@ class RedisRolloutWorker:
                  simulator=False,
                  visualize=False,
                  dodge_deadzone=0.8,
-                 live_progress=True
-                 ):
+                 live_progress=True):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
         self.redis = redis
@@ -115,8 +113,8 @@ class RedisRolloutWorker:
         self.gamemode_weights = gamemode_weights
         if self.gamemode_weights is None:
             self.gamemode_weights = {'1v1': 1 / 3, '2v2': 1 / 3, '3v3': 1 / 3}
-        assert sum(self.gamemode_weights.values()
-                   ) == 1, "gamemode_weights must sum to 1"
+        assert np.isclose(sum(self.gamemode_weights.values()),
+                           1), "gamemode_weights must sum to 1"
         self.target_weights = copy.copy(self.gamemode_weights)
         # change weights from percentage of experience desired to percentage of gamemodes necessary (approx)
         self.current_weights = copy.copy(self.gamemode_weights)
@@ -219,7 +217,7 @@ class RedisRolloutWorker:
             mode = np.random.choice(list(self.current_weights.keys()))
         b, o = mode.split("v")
         return int(b), int(o)
-    
+
     @staticmethod
     def make_table(versions, ratings, blue, orange):
         version_info = []
@@ -299,6 +297,7 @@ class RedisRolloutWorker:
                     agents.append(self.current_agent)
                     versions.append(latest_version)
 
+                versions = [v if v != -1 else latest_version for v in versions]
                 ratings = ["na"] * len(versions)
             else:
                 versions, ratings, evaluate = self.matchmaker.generate_matchup(self.redis,
@@ -340,6 +339,7 @@ class RedisRolloutWorker:
                                                                               eval_setter=self.eval_setter)
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
+                print()
             else:
                 if not self.streamer_mode:
                     print("ROLLOUT\n" + table_str)
@@ -432,4 +432,3 @@ class RedisRolloutWorker:
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
 
-    

@@ -5,7 +5,6 @@ import pstats
 import time
 import sys
 from typing import Iterator, List, Tuple, Union
-from collections import defaultdict
 
 import numba
 import numpy as np
@@ -212,9 +211,6 @@ class PPO:
             self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps})
             print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
 
-
-
-
             # pr.disable()
             # s = io.StringIO()
             # sortby = pstats.SortKey.CUMULATIVE
@@ -363,8 +359,10 @@ class PPO:
         tot_value_loss = 0
         total_kl_div = 0
         tot_clipped = 0
-        tot_kl_other_models = np.zeros(len(self.kl_models_weights)) if self.kl_models_weights is not None else np.zeros(1)
-        tot_kl_coeffs = np.zeros(len(self.kl_models_weights)) if self.kl_models_weights is not None else np.zeros(1)
+
+        if self.kl_models_weights is not None:
+            tot_kl_other_models = np.zeros(len(self.kl_models_weights))
+            tot_kl_coeffs = np.zeros(len(self.kl_models_weights))
 
         n = 0
 
