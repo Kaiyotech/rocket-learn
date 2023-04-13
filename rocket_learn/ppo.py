@@ -5,7 +5,6 @@ import pstats
 import time
 import sys
 from typing import Iterator, List, Tuple, Union
-from collections import defaultdict
 
 import numba
 import numpy as np
@@ -365,8 +364,8 @@ class PPO:
         tot_clipped = 0
 
         if self.kl_models_weights is not None:
-            tot_kl_other_models = np.zeros(len(self.kl_models_weights)) if self.kl_models_weights is not None else np.zeros(1)
-            tot_kl_coeffs = np.zeros(len(self.kl_models_weights)) if self.kl_models_weights is not None else np.zeros(1)
+            tot_kl_other_models = np.zeros(len(self.kl_models_weights))
+            tot_kl_coeffs = np.zeros(len(self.kl_models_weights))
 
         n = 0
 

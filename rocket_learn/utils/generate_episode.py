@@ -203,6 +203,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
     if scoreboard is not None:
         scoreboard.random_resets = random_resets  # noqa Checked above
 
+    if progress is not None:
+        progress.close()
+
     if evaluate:
         if isinstance(env._match._state_setter, DynamicGMSetter):  # noqa
             env._match._state_setter.setter = state_setter  # noqa
@@ -211,9 +214,6 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         env._match._terminal_conditions = terminals  # noqa
         env._match._reward_fn = reward  # noqa
         return result
-
-    if progress is not None:
-        progress.close()
 
     return rollouts, result
 
