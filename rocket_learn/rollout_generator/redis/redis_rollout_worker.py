@@ -14,6 +14,7 @@ from redis import Redis
 from rlgym.envs import Match
 from rlgym.gamelaunch import LaunchPreference
 from rlgym.gym import Gym
+from tabulate import tabulate
 
 from rlgym.utils.state_setters import DefaultState
 
@@ -71,6 +72,7 @@ class RedisRolloutWorker:
                  simulator=False,
                  visualize=False,
                  dodge_deadzone=0.8,
+                 live_progress=True,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
@@ -124,6 +126,8 @@ class RedisRolloutWorker:
         self.local_cache_name = local_cache_name
 
         self.full_team_evaluations = full_team_evaluations
+
+        self.live_progress = live_progress
 
         self.uuid = str(uuid4())
         self.redis.rpush(WORKER_IDS, self.uuid)
@@ -302,6 +306,33 @@ class RedisRolloutWorker:
         b, o = mode.split("v")
         return int(b), int(o)
 
+    @staticmethod
+    def make_table(versions, ratings, blue, orange, pretrained_choice):
+        version_info = []
+        for v, r in zip(versions, ratings):
+            if pretrained_choice is not None and v == 'na':  # print name but don't send it back
+                version_info.append([str(type(pretrained_choice).__name__), "N/A"])
+            elif v == 'na':
+                version_info.append(['Human', "N/A"])
+            else:
+                if isinstance(v, int) and v < 0:
+                    v = f"Latest ({-v})"
+                version_info.append([v, f"{r.mu:.2f}±{2 * r.sigma:.2f}"])
+
+        blue_versions, blue_ratings = list(zip(*version_info[:blue]))
+        orange_versions, orange_ratings = list(zip(*version_info[blue:]))
+
+        if blue < orange:
+            blue_versions += [""] * (orange - blue)
+            blue_ratings += [""] * (orange - blue)
+        elif orange < blue:
+            orange_versions += [""] * (blue - orange)
+            orange_ratings += [""] * (blue - orange)
+
+        table_str = tabulate(list(zip(blue_versions, blue_ratings, orange_versions, orange_ratings)),
+                             headers=["Blue", "rating", "Orange", "rating"], tablefmt="rounded_outline")
+
+        return table_str
 
     def run(self):  # Mimics Thread
         """
@@ -368,27 +399,18 @@ class RedisRolloutWorker:
 
             evaluate = not any(isinstance(v, int) and v < 0 for v in versions)  # Might be changed in matchup code
 
-            version_info = []
-            for v, r in zip(versions, ratings):
-                if pretrained_choice is not None and v == 'na':  # print name but don't send it back
-                    version_info.append(str(type(pretrained_choice).__name__))
-                elif v == 'na':
-                    version_info.append('Human_player')
-                else:
-                    version_info.append(f"{v} ({r.mu:.2f}±{2 * r.sigma:.2f})")
+            table_str = self.make_table(versions, ratings, blue, orange, pretrained_choice)
 
             if evaluate and not self.streamer_mode and self.human_agent is None:
-                print("Running evaluation game with versions:", version_info)
+                print("EVALUATION GAME\n" + table_str)
                 result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents, evaluate=True,
-                                                                              scoreboard=self.scoreboard,
-                                                                              selector_skip_k=self.selector_skip_k,
-                                                                              force_selector_choice=self.force_selector_choice,
-                                                                              eval_setter=self.eval_setter)
+                                                                              scoreboard=self.scoreboard)
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
+                print()
             else:
                 if not self.streamer_mode:
-                    print("Generating rollout with versions:", version_info)
+                    print("ROLLOUT\n" + table_str)
 
                 try:
                     rollouts, result = rocket_learn.utils.generate_episode.generate_episode(
@@ -396,10 +418,12 @@ class RedisRolloutWorker:
                         evaluate=False,
                         scoreboard=self.scoreboard,
                         selector_skip_k=self.selector_skip_k,
-                        force_selector_choice=self.force_selector_choice)
+                        force_selector_choice=self.force_selector_choice,
+                        progress=self.live_progress)
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
                         print(" ** Rollout Generation Error: Restarting Generation ** ")
+                        print()
                         continue
                 except EnvironmentError:
                     self.env.attempt_recovery()
@@ -419,6 +443,7 @@ class RedisRolloutWorker:
 
                 if not self.streamer_mode:
                     print(post_stats)
+                    print()
 
             if not self.streamer_mode and not self.batch_mode:
                 rollout_data = encode_buffers(rollouts,
