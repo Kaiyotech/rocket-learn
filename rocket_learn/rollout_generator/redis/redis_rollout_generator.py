@@ -139,10 +139,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             orange = tuple(ratings[blue_players:])
 
             # In ranks lowest number is best, result=-1 is orange win, 0 tie, 1 blue
-            try:
-                r1, r2 = rate((blue, orange), ranks=(0, result))
-            except:
-                print("what?")
+            r1, r2 = rate((blue, orange), ranks=(0, result))
 
             # Some trickery to handle same rating appearing multiple times, we just average their new mus and sigmas
             ratings_versions = {}
@@ -377,7 +374,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
 
         for gamemode in self.gamemodes:
             self.logger.log({
-                f"pretrained/qualities-{gamemode}": wandb.Table(columns=["name", "rating"], data=pretrained_qualities[gamemode])
+                "pretrained/qualities-" + gamemode: wandb.Table(columns=["name", "rating"], data=pretrained_qualities[gamemode])
             }, commit=False)
 
         if self.gamemodes[0] != '1v0':
