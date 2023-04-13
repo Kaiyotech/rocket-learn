@@ -363,8 +363,10 @@ class PPO:
         tot_value_loss = 0
         total_kl_div = 0
         tot_clipped = 0
-        tot_kl_other_models = np.zeros(len(self.kl_models_weights)) if self.kl_models_weights is not None else np.zeros(1)
-        tot_kl_coeffs = np.zeros(len(self.kl_models_weights)) if self.kl_models_weights is not None else np.zeros(1)
+
+        if self.kl_models_weights is not None:
+            tot_kl_other_models = np.zeros(len(self.kl_models_weights)) if self.kl_models_weights is not None else np.zeros(1)
+            tot_kl_coeffs = np.zeros(len(self.kl_models_weights)) if self.kl_models_weights is not None else np.zeros(1)
 
         n = 0
 
