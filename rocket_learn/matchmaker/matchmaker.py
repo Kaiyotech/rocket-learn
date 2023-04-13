@@ -3,7 +3,7 @@ import itertools
 
 from rocket_learn.agent.discrete_policy import DiscretePolicy
 from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
-from rocket_learn.rollout_generator.redis.utils import get_rating, get_ratings, get_pretrained_ratings, LATEST_RATING_ID, VERSION_LATEST
+from rocket_learn.rollout_generator.redis.utils import get_rating, get_ratings, get_pretrained_ratings, LATEST_RATING_ID
 from rocket_learn.utils.util import probability_NvsM
 from rocket_learn.agent.types import PretrainedAgents
 
