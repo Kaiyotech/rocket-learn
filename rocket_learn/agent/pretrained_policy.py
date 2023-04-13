@@ -25,13 +25,15 @@ class PretrainedDiscretePolicy(DiscretePolicy, HardcodedAgent):
         :param shape: action distribution shape
     """
 
+    # Change this to include deterministic
     def __init__(self, obs_builder_func, net: nn.Module, shape: Tuple[int, ...] = (3,) * 5 + (2,) * 3):
-        super().__init__(net, shape)
+        super().__init__(net, shape)  # Change this to include deterministic
         self.obs_builder_func = obs_builder_func
 
     def act(self, state: GameState, player_index):
         obs = self.obs_builder_func(state)
         dist = self.get_action_distribution(obs)
+        # Change this to not include deterministic param
         action_indices = self.sample_action(dist, deterministic=False)
         actions = self.env_compatible(action_indices)
 

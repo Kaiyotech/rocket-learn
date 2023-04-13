@@ -18,6 +18,7 @@ from rlgym.utils.state_setters import DefaultState
 from tabulate import tabulate
 
 import rocket_learn.agent.policy
+from rocket_learn.agent.discrete_policy import DiscretePolicy
 from rocket_learn.agent.types import PretrainedAgents
 import rocket_learn.utils.generate_episode
 from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
@@ -114,7 +115,7 @@ class RedisRolloutWorker:
         if self.gamemode_weights is None:
             self.gamemode_weights = {'1v1': 1 / 3, '2v2': 1 / 3, '3v3': 1 / 3}
         assert np.isclose(sum(self.gamemode_weights.values()),
-                           1), "gamemode_weights must sum to 1"
+                          1), "gamemode_weights must sum to 1"
         self.target_weights = copy.copy(self.gamemode_weights)
         # change weights from percentage of experience desired to percentage of gamemodes necessary (approx)
         self.current_weights = copy.copy(self.gamemode_weights)
@@ -172,7 +173,6 @@ class RedisRolloutWorker:
                            )
         self.total_steps_generated = 0
         self.live_progress = live_progress
-
 
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
@@ -311,9 +311,13 @@ class RedisRolloutWorker:
                         versions[i] = latest_version
                         agents.append(self.current_agent)
                     else:
+                        # For instances of PretrainedDiscretePolicy, whose redis qualities keys end with -deterministic or -stochastic
                         short_name = "-".join(version.split("-")[:-1])
                         if short_name in self.pretrained_agents_keymap:
                             selected_agent = self.pretrained_agents_keymap[short_name]
+                        # For any other instances of HardcodedAgent, whose redis qualities keys are just the key in the keymap
+                        elif version in self.pretrained_agents_keymap:
+                            selected_agent = self.pretrained_agents_keymap[version]
                         else:
                             selected_agent = self._get_past_model(short_name)
                             if self.force_old_deterministic and n_new != 0:
@@ -321,12 +325,14 @@ class RedisRolloutWorker:
                                     'stochastic', 'deterministic')
                                 version = version.replace(
                                     'stochastic', 'deterministic')
-                        if version.endswith("deterministic"):
-                            selected_agent.deterministic = True
-                        elif version.endswith("stochastic"):
-                            selected_agent.deterministic = False
-                        else:
-                            raise ValueError("Unknown version type")
+
+                        if isinstance(selected_agent, DiscretePolicy):
+                            if version.endswith("deterministic"):
+                                selected_agent.deterministic = True
+                            elif version.endswith("stochastic"):
+                                selected_agent.deterministic = False
+                            else:
+                                raise ValueError("Unknown version type")
                         agents.append(selected_agent)
 
             table_str = self.make_table(versions, ratings, blue, orange)
@@ -433,4 +439,3 @@ class RedisRolloutWorker:
                             "Had to limit rollouts. Learner may have have crashed, or is overloaded")
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
-
