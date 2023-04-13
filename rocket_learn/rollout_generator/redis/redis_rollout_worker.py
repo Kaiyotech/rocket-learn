@@ -19,6 +19,7 @@ from tabulate import tabulate
 from rlgym.utils.state_setters import DefaultState
 
 import rocket_learn.agent.policy
+from rocket_learn.agent.discrete_policy import DiscretePolicy
 from rocket_learn.agent.types import PretrainedAgents
 import rocket_learn.utils.generate_episode
 from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
@@ -175,7 +176,6 @@ class RedisRolloutWorker:
         self.total_steps_generated = 0
         self.live_progress = live_progress
 
-
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
         # if version in local database, query from database
@@ -219,7 +219,7 @@ class RedisRolloutWorker:
             mode = np.random.choice(list(self.current_weights.keys()))
         b, o = mode.split("v")
         return int(b), int(o)
-    
+
     @staticmethod
     def make_table(versions, ratings, blue, orange):
         version_info = []
@@ -312,9 +312,13 @@ class RedisRolloutWorker:
                         versions[i] = latest_version
                         agents.append(self.current_agent)
                     else:
+                        # For instances of PretrainedDiscretePolicy, whose redis qualities keys end with -deterministic or -stochastic
                         short_name = "-".join(version.split("-")[:-1])
                         if short_name in self.pretrained_agents_keymap:
                             selected_agent = self.pretrained_agents_keymap[short_name]
+                        # For any other instances of HardcodedAgent, whose redis qualities keys are just the key in the keymap
+                        elif version in self.pretrained_agents_keymap:
+                            selected_agent = self.pretrained_agents_keymap[version]
                         else:
                             selected_agent = self._get_past_model(short_name)
                             if self.force_old_deterministic and n_new != 0:
@@ -322,12 +326,14 @@ class RedisRolloutWorker:
                                     'stochastic', 'deterministic')
                                 version = version.replace(
                                     'stochastic', 'deterministic')
-                        if version.endswith("deterministic"):
-                            selected_agent.deterministic = True
-                        elif version.endswith("stochastic"):
-                            selected_agent.deterministic = False
-                        else:
-                            raise ValueError("Unknown version type")
+
+                        if isinstance(selected_agent, DiscretePolicy):
+                            if version.endswith("deterministic"):
+                                selected_agent.deterministic = True
+                            elif version.endswith("stochastic"):
+                                selected_agent.deterministic = False
+                            else:
+                                raise ValueError("Unknown version type")
                         agents.append(selected_agent)
 
             table_str = self.make_table(versions, ratings, blue, orange)
@@ -434,4 +440,3 @@ class RedisRolloutWorker:
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
 
-    

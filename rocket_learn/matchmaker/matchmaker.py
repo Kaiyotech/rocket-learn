@@ -1,6 +1,7 @@
 import numpy as np
 import itertools
 
+from rocket_learn.agent.discrete_policy import DiscretePolicy
 from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
 from rocket_learn.rollout_generator.redis.utils import get_rating, get_ratings, get_pretrained_ratings, LATEST_RATING_ID, VERSION_LATEST
 from rocket_learn.utils.util import probability_NvsM
@@ -35,7 +36,7 @@ class Matchmaker(BaseMatchmaker):
             pretrained_probs) / sum(pretrained_probs)
         self.pretrained_evals = [p["eval"] for p in pretrained_agents_values]
         self.pretrained_p_deterministic_training = [
-            p["p_deterministic_training"] for p in pretrained_agents_values]
+            p["p_deterministic_training"] if p["p_deterministic_training"] is not None else 1 for p in pretrained_agents_values]
         self.pretrained_keys = [p["key"] for p in pretrained_agents_values]
         self.pretrained_eval_keys = [k for i, k in enumerate(
             self.pretrained_keys) if self.pretrained_evals[i]]
@@ -86,7 +87,7 @@ class Matchmaker(BaseMatchmaker):
         # We also have the pretrained agents' ratings (the ones that have eval set to true, that is)
         pretrained_ratings = get_pretrained_ratings(gamemode, redis)
         pretrained_ratings_keys, pretrained_ratings_values = zip(
-            *[p for p in pretrained_ratings.items() if "-".join(p[0].split("-")[:-1]) in self.pretrained_eval_keys])
+            *[p for p in pretrained_ratings.items() if "-".join(p[0].split("-")[:-1]) in self.pretrained_eval_keys or p[0] in self.pretrained_eval_keys])
 
         all_ratings_keys = past_version_ratings_keys + pretrained_ratings_keys
         all_ratings_values = past_version_ratings_values + pretrained_ratings_values
@@ -131,8 +132,12 @@ class Matchmaker(BaseMatchmaker):
                 pretrained_idx = list(n_each_pretrained).index(1)
                 use_deterministic = np.random.random(
                 ) < self.pretrained_p_deterministic_training[pretrained_idx]
-                pretrained_key = self.pretrained_keys[pretrained_idx] + (
-                    "-deterministic" if use_deterministic else "-stochastic")
+                pretrained_agent = self.pretrained_agents[pretrained_idx]
+                if isinstance(pretrained_agent, DiscretePolicy):
+                    pretrained_key = self.pretrained_keys[pretrained_idx] + (
+                        "-deterministic" if use_deterministic else "-stochastic")
+                else:
+                    pretrained_key = self.pretrained_keys[pretrained_idx]
                 versions += [pretrained_key] * per_team
                 ratings += [pretrained_ratings_values[pretrained_ratings_keys.index(
                     pretrained_key)]] * per_team
@@ -169,7 +174,7 @@ class Matchmaker(BaseMatchmaker):
         # We need to calculate the nvn win prob against the chosen_first agent for everyone in the pool. In evaluation matches where full_team_match is true,
         # we don't want to have our remaining pick be the same agent as chosen_first.
         for i, rating in enumerate(ratings_values_pool):
-            if evaluate and full_team_match and i == versions[0]:
+            if evaluate and full_team_match and ratings_keys_pool[i] == versions[0]:
                 p = 0
             else:
                 p = probability_NvsM(
@@ -203,19 +208,7 @@ class Matchmaker(BaseMatchmaker):
                 team2_ratings_keys = [versions[v] for v in team2]
                 team2_ratings_values = [ratings[v] for v in team2]
                 # Don't want team against team in evals
-                ratings_keys_n_each = [{}, {}]
-                for i, ratings_keys in enumerate([team1_ratings_keys, team2_ratings_keys]):
-                    for key in ratings_keys:
-                        if key not in ratings_keys_n_each[i]:
-                            ratings_keys_n_each[i][key] = 1
-                        else:
-                            ratings_keys_n_each[i][key] += 1
-                same = True
-                for ratings_key, ratings_n in ratings_keys_n_each[0].items():
-                    if ratings_key not in ratings_keys_n_each[1] or ratings_n != ratings_keys_n_each[1][ratings_key]:
-                        same = False
-                        break
-                if same:
+                if sorted(team1_ratings_keys) == sorted(team2_ratings_keys):
                     p = 0
                 else:
                     p = probability_NvsM(

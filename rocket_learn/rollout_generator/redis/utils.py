@@ -9,6 +9,7 @@ from rlgym.utils.gamestates import GameState
 from trueskill import Rating, SIGMA
 
 from rocket_learn.agent.types import PretrainedAgents
+from rocket_learn.agent.discrete_policy import DiscretePolicy
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.batched_obs_builder import BatchedObsBuilder
 from rocket_learn.utils.gamestate_encoding import encode_gamestate
@@ -123,17 +124,24 @@ def add_pretrained_ratings(redis: Redis, pretrained_agents: PretrainedAgents, ga
     :param starting_sigma: The sigma for the agents to start with.
     :param override: If true, will overwrite any matching existing agent keys with the new rating.
     """
-    for config in pretrained_agents.values():
+    for agent, config in pretrained_agents.items():
         if config["eval"]:
             for gamemode in gamemodes:
                 qualities = {
                     k.decode("utf-8"): Rating(*_unserialize(v))
                     for k, v in redis.hgetall(PRETRAINED_QUALITIES.format(gamemode)).items()
                 }
-                for mode in "stochastic", "deterministic":
-                    if override or f"{config['key']}-{mode}" not in qualities:
+                total_keys = []
+                if isinstance(agent, DiscretePolicy):
+                    for mode in "stochastic", "deterministic":
+                        total_keys.append(f"{config['key']}-{mode}")
+                else:
+                    total_keys.append(config['key'])
+
+                for key in total_keys:
+                    if override or key not in qualities:
                         redis.hset(PRETRAINED_QUALITIES.format(
-                            gamemode), f"{config['key']}-{mode}", _serialize(tuple(Rating(starting_rating, starting_sigma))))
+                            gamemode), key, _serialize(tuple(Rating(starting_rating, starting_sigma))))
 
 
 def encode_buffers(buffers: List[ExperienceBuffer], return_obs=True, return_states=True, return_rewards=True):
