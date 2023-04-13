@@ -148,16 +148,22 @@ class Matchmaker(BaseMatchmaker):
                     return (versions[mid:] + versions[:mid]), (ratings[mid:] + ratings[:mid]), False
             elif has_pretrained:
                 for i, n_agent in enumerate(n_each_pretrained):
-                    n_deterministic = np.random.binomial(
-                        n_agent, self.pretrained_p_deterministic_training[i])
-                    versions += [self.pretrained_keys[i] +
-                                 "-deterministic"] * n_deterministic
-                    versions += [self.pretrained_keys[i] +
-                                 "-stochastic"] * (n_agent - n_deterministic)
-                    ratings += [pretrained_ratings_values[pretrained_ratings_keys.index(
-                        self.pretrained_keys[i] + "-deterministic")]] * n_deterministic
-                    ratings += [pretrained_ratings_values[pretrained_ratings_keys.index(
-                        self.pretrained_keys[i] + "-stochastic")]] * (n_agent - n_deterministic)
+                    pretrained_agent = self.pretrained_agents[i]
+                    if isinstance(pretrained_agent, DiscretePolicy):
+                        n_deterministic = np.random.binomial(
+                            n_agent, self.pretrained_p_deterministic_training[i])
+                        versions += [self.pretrained_keys[i] +
+                                     "-deterministic"] * n_deterministic
+                        versions += [self.pretrained_keys[i] +
+                                     "-stochastic"] * (n_agent - n_deterministic)
+                        ratings += [pretrained_ratings_values[pretrained_ratings_keys.index(
+                            self.pretrained_keys[i] + "-deterministic")]] * n_deterministic
+                        ratings += [pretrained_ratings_values[pretrained_ratings_keys.index(
+                            self.pretrained_keys[i] + "-stochastic")]] * (n_agent - n_deterministic)
+                    else:
+                        versions += [self.pretrained_keys[i]] * n_agent
+                        ratings += [pretrained_ratings_values[pretrained_ratings_keys.index(
+                            self.pretrained_keys[i])]] * n_agent
 
             # and the number of agents that are latest. If full_team_match is true then at this point in execution we must have n_past_version == 1 so there is nothing to add
             if not full_team_match:
@@ -208,7 +214,7 @@ class Matchmaker(BaseMatchmaker):
                 team2_ratings_keys = [versions[v] for v in team2]
                 team2_ratings_values = [ratings[v] for v in team2]
                 # Don't want team against team in evals
-                if sorted(team1_ratings_keys) == sorted(team2_ratings_keys):
+                if sorted(str(k) for k in team1_ratings_keys) == sorted(str(k) for k in team2_ratings_keys):
                     p = 0
                 else:
                     p = probability_NvsM(
