@@ -125,7 +125,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             v, str) and v != "human"]
         for version in rated_versions:
             short_name = "-".join(version.split("-")[:-1])
-            if short_name or version in self.pretrained_agents_keys:
+            if version in self.pretrained_agents_keys or short_name in self.pretrained_agents_keys:
                 rating = get_pretrained_rating(
                     gamemode, version, self.redis)
             else:
@@ -154,7 +154,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 avg_rating = Rating(sum(r.mu for r in ratings) / len(ratings),
                                     max(sum(r.sigma ** 2 for r in ratings) ** 0.5 / len(ratings), self.min_sigma))
                 short_name = "-".join(version.split("-")[:-1])
-                if short_name or version in self.pretrained_agents_keys:
+                if version in self.pretrained_agents_keys or short_name in self.pretrained_agents_keys:
                     mapping_pretrained[version] = _serialize(tuple(avg_rating))
                 else:
                     mapping_past[version] = _serialize(tuple(avg_rating))
