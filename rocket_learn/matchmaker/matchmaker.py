@@ -28,18 +28,23 @@ class Matchmaker(BaseMatchmaker):
         self.full_team_trainings = full_team_trainings
         self.full_team_evaluations = full_team_evaluations
         self.force_non_latest_orange = force_non_latest_orange
-        pretrained_agents_keys, pretrained_agents_values = zip(
-            *pretrained_agents.items())
-        self.pretrained_agents = pretrained_agents_keys
-        pretrained_probs = [p["prob"] for p in pretrained_agents_values]
-        self.pretrained_probs = np.array(
-            pretrained_probs) / sum(pretrained_probs)
-        self.pretrained_evals = [p["eval"] for p in pretrained_agents_values]
-        self.pretrained_p_deterministic_training = [
-            p["p_deterministic_training"] if p["p_deterministic_training"] is not None else 1 for p in pretrained_agents_values]
-        self.pretrained_keys = [p["key"] for p in pretrained_agents_values]
-        self.pretrained_eval_keys = [k for i, k in enumerate(
-            self.pretrained_keys) if self.pretrained_evals[i]]
+        if pretrained_agents is not None:
+            self.consider_pretrained = True
+            pretrained_agents_keys, pretrained_agents_values = zip(
+                *pretrained_agents.items())
+            self.pretrained_agents = pretrained_agents_keys
+            pretrained_probs = [p["prob"] for p in pretrained_agents_values]
+            self.pretrained_probs = np.array(
+                pretrained_probs) / sum(pretrained_probs)
+            self.pretrained_evals = [p["eval"]
+                                     for p in pretrained_agents_values]
+            self.pretrained_p_deterministic_training = [
+                p["p_deterministic_training"] if p["p_deterministic_training"] is not None else 1 for p in pretrained_agents_values]
+            self.pretrained_keys = [p["key"] for p in pretrained_agents_values]
+            self.pretrained_eval_keys = [k for i, k in enumerate(
+                self.pretrained_keys) if self.pretrained_evals[i]]
+        else:
+            self.consider_pretrained = False
 
     def generate_matchup(self, redis, n_agents, evaluate):
         full_team_match = np.random.random() < (
@@ -57,10 +62,13 @@ class Matchmaker(BaseMatchmaker):
             else:
                 # We only want a maximum of half the agents to be non latest in training matchups
                 n_non_latest = min(n_agents // 2, n_non_latest)
-            n_past_version = np.random.binomial(
-                n_non_latest, self.past_version_prob)
-            n_each_pretrained = np.random.multinomial(
-                n_non_latest-n_past_version, self.pretrained_probs)
+            if self.past_version_prob == 1:
+                n_past_version = n_non_latest
+            else:
+                n_past_version = np.random.binomial(
+                    n_non_latest, self.past_version_prob)
+                n_each_pretrained = np.random.multinomial(
+                    n_non_latest-n_past_version, self.pretrained_probs)
             n_picks -= n_non_latest - n_past_version
 
         per_team = n_agents // 2
@@ -85,9 +93,14 @@ class Matchmaker(BaseMatchmaker):
             *past_version_ratings.items())
 
         # We also have the pretrained agents' ratings (the ones that have eval set to true, that is)
-        pretrained_ratings = get_pretrained_ratings(gamemode, redis)
-        pretrained_ratings_keys, pretrained_ratings_values = zip(
-            *[p for p in pretrained_ratings.items() if "-".join(p[0].split("-")[:-1]) in self.pretrained_eval_keys or p[0] in self.pretrained_eval_keys])
+        if self.consider_pretrained:
+            pretrained_ratings = get_pretrained_ratings(gamemode, redis)
+            pretrained_ratings_keys, pretrained_ratings_values = zip(
+                *[p for p in pretrained_ratings.items() if "-".join(p[0].split("-")[:-1]) in self.pretrained_eval_keys or p[0] in self.pretrained_eval_keys])
+        else:
+            pretrained_ratings = []
+            pretrained_ratings_keys = ()
+            pretrained_ratings_values = ()
 
         all_ratings_keys = past_version_ratings_keys + pretrained_ratings_keys
         all_ratings_values = past_version_ratings_values + pretrained_ratings_values
