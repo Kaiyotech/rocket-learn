@@ -13,8 +13,10 @@ from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
 
-def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None, selector_skip_k=None,
-                     force_selector_choice=None, progress=False) -> (List[ExperienceBuffer], int):
+
+def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None, progress=False, selector_skip_k=None,
+                     force_selector_choice=None) -> (List[ExperienceBuffer], int):  # type: ignore
+
     """
     create experience buffer data by interacting with the environment(s)
     """

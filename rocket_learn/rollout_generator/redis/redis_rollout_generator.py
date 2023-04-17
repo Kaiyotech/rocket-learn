@@ -51,11 +51,10 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         self.tot_bytes = 0
         self.redis = redis
         self.logger = logger
-
-        add_pretrained_ratings(
-            self.redis, pretrained_agents, gamemodes=gamemodes)
         self.pretrained_agents_keys = []
         if pretrained_agents is not None:
+            add_pretrained_ratings(
+                self.redis, pretrained_agents, gamemodes=gamemodes)
             for config in pretrained_agents.values():
                 self.pretrained_agents_keys.append(config["key"])
 
@@ -112,7 +111,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         gamemode = f"{len(versions) // 2}v{len(versions) // 2}"
 
         has_buffer_versions = [
-            v for v in versions if isinstance(v, int) or (v != "human" and "-".join(v.split("-")[:-1]) not in self.pretrained_agents_keys)]
+            v for v in versions if isinstance(v, int) or (v != "human" and ("-".join(v.split("-")[:-1]) not in self.pretrained_agents_keys and v not in self.pretrained_agents_keys))]
         for version, buffer in itertools.zip_longest(has_buffer_versions, buffers):
             if isinstance(version, int) and version < 0:
                 if abs(version - latest_version) <= self.max_age:
@@ -125,7 +124,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             v, str) and v != "human"]
         for version in rated_versions:
             short_name = "-".join(version.split("-")[:-1])
-            if short_name or version in self.pretrained_agents_keys:
+            if version in self.pretrained_agents_keys or short_name in self.pretrained_agents_keys:
                 rating = get_pretrained_rating(
                     gamemode, version, self.redis)
             else:
@@ -154,7 +153,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 avg_rating = Rating(sum(r.mu for r in ratings) / len(ratings),
                                     max(sum(r.sigma ** 2 for r in ratings) ** 0.5 / len(ratings), self.min_sigma))
                 short_name = "-".join(version.split("-")[:-1])
-                if short_name or version in self.pretrained_agents_keys:
+                if version in self.pretrained_agents_keys or short_name in self.pretrained_agents_keys:
                     mapping_pretrained[version] = _serialize(tuple(avg_rating))
                 else:
                     mapping_past[version] = _serialize(tuple(avg_rating))
