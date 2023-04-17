@@ -211,6 +211,9 @@ class PPO:
             self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps})
             print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
 
+
+
+
             # pr.disable()
             # s = io.StringIO()
             # sortby = pstats.SortKey.CUMULATIVE
