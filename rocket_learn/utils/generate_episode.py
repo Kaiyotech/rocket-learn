@@ -35,7 +35,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                                        seconds_per_goal_forfeit=10 * env._match._team_size,  # noqa
                                        max_overtime_seconds=300,
                                        max_no_touch_seconds=30)  # noqa
-        env._match._terminal_conditions = [game_condition, GoalScoredCondition()]  # noqa
+        env._match._terminal_conditions = [game_condition]  # noqa
         if isinstance(env._match._state_setter, DynamicGMSetter):  # noqa
             state_setter = env._match._state_setter.setter  # noqa
             env._match._state_setter.setter = eval_setter  # noqa
