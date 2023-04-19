@@ -11,7 +11,9 @@ from rocket_learn.agent.types import PretrainedAgents
 class Matchmaker(BaseMatchmaker):
 
     def __init__(self, sigma_target=1, pretrained_agents: PretrainedAgents = None, non_latest_version_prob=[1, 0, 0, 0],
-                 past_version_prob=1, full_team_trainings=0, full_team_evaluations=0, force_non_latest_orange=False):
+                 past_version_prob=1, full_team_trainings=0, full_team_evaluations=0, force_non_latest_orange=False,
+                 showmatch=False,
+                 orange_agent_text_file=None):
         """
         :param sigma_target: The sigma value at which agents stop playing in eval matches frequently
         :param pretrained_agents: a configuration dict for how and how often to use pretrained agents in matchups.
@@ -21,13 +23,15 @@ class Matchmaker(BaseMatchmaker):
         :param full_team_evaluations: The probability that a match uses all agents of the same type on a given team in evals.
         :param force_non_latest_orange: A boolean that, if true, ensures the first player in the list is latest agent (if one exists in the match).
         """
+        self.orange_agents_text_file = orange_agent_text_file
+        self.showmatch = showmatch
         self.sigma_target = sigma_target
         self.non_latest_version_prob = np.array(
             non_latest_version_prob) / sum(non_latest_version_prob)
         self.past_version_prob = 1 if pretrained_agents is None else past_version_prob
-        self.full_team_trainings = full_team_trainings
-        self.full_team_evaluations = full_team_evaluations
-        self.force_non_latest_orange = force_non_latest_orange
+        self.full_team_trainings = full_team_trainings or showmatch
+        self.full_team_evaluations = full_team_evaluations or showmatch
+        self.force_non_latest_orange = force_non_latest_orange or showmatch
         if pretrained_agents is not None:
             self.consider_pretrained = True
             pretrained_agents_keys, pretrained_agents_values = zip(
@@ -155,6 +159,17 @@ class Matchmaker(BaseMatchmaker):
                 ratings += [pretrained_ratings_values[pretrained_ratings_keys.index(
                     pretrained_key)]] * per_team
                 if self.force_non_latest_orange or np.random.random() < 0.5:
+                    # replace latest with peak
+                    if self.showmatch:
+                        assert full_team_match
+                        sorted_ratings = {k: v for k, v in
+                                          sorted(past_version_ratings.items(), key=lambda item: item[1].mu)}
+                        peak_version = list(sorted_ratings)[-1]
+                        for i in range(per_team):
+                            versions[i] = peak_version
+                    if self.orange_agents_text_file is not None:
+                        with open(self.orange_agents_text_file, 'w') as file:
+                            file.write(versions[per_team])
                     return versions, ratings, False
                 else:
                     mid = len(versions) // 2

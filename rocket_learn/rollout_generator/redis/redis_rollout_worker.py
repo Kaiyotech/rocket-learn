@@ -74,7 +74,7 @@ class RedisRolloutWorker:
                  simulator=False,
                  visualize=False,
                  dodge_deadzone=0.8,
-                 live_progress=True
+                 live_progress=True,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
