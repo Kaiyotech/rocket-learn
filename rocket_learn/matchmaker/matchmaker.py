@@ -57,9 +57,7 @@ class Matchmaker(BaseMatchmaker):
             n_picks = 2
         else:
             n_picks = n_agents
-        if evaluate:
-            n_agents = np.random.choice([2, 4, 6])
-        else:
+        if not evaluate:
             n_non_latest = np.random.choice(
                 len(self.non_latest_version_prob), p=self.non_latest_version_prob)
             if full_team_match:
@@ -90,7 +88,7 @@ class Matchmaker(BaseMatchmaker):
         # This is a training match with all latest agents, no further logic necessary
         if not evaluate and n_non_latest == 0:
             rating = get_rating(gamemode, latest_key, redis)
-            return [latest_version] * n_agents, [rating] * n_agents, False, n_agents // 2, n_agents // 2
+            return [latest_version] * n_agents, [rating] * n_agents, False
 
         past_version_ratings = get_ratings(gamemode, redis)
         # This is the rating of the most recent eval model
@@ -101,14 +99,8 @@ class Matchmaker(BaseMatchmaker):
         # We also have the pretrained agents' ratings (the ones that have eval set to true, that is)
         if self.consider_pretrained:
             pretrained_ratings = get_pretrained_ratings(gamemode, redis)
-            pretrained_ratings_items = [p for p in pretrained_ratings.items(
-            ) if "-".join(p[0].split("-")[:-1]) in self.pretrained_eval_keys or p[0] in self.pretrained_eval_keys]
-            if pretrained_ratings_items:
-                pretrained_ratings_keys, pretrained_ratings_values = zip(
-                    *pretrained_ratings_items)
-            else:
-                pretrained_ratings_keys = ()
-                pretrained_ratings_values = ()
+            pretrained_ratings_keys, pretrained_ratings_values = zip(
+                *[p for p in pretrained_ratings.items() if "-".join(p[0].split("-")[:-1]) in self.pretrained_eval_keys or p[0] in self.pretrained_eval_keys])
         else:
             pretrained_ratings = []
             pretrained_ratings_keys = ()
@@ -119,7 +111,7 @@ class Matchmaker(BaseMatchmaker):
 
         if evaluate and len(all_ratings_keys) < n_picks:
             # Can't run evaluation game, not enough agents
-            return [latest_version] * n_agents, [latest_rating] * n_agents, False, n_agents // 2, n_agents // 2
+            return [latest_version] * n_agents, [latest_rating] * n_agents, False
 
         if evaluate:  # Evaluation game, try to find agents with high sigma
             sigmas = np.array(
@@ -131,7 +123,7 @@ class Matchmaker(BaseMatchmaker):
                     # Some chance of doing a match with random versions, so they might correct themselves
                     probs = np.ones_like(probs) / len(probs)
                 else:
-                    return [latest_version] * n_agents, [latest_rating] * n_agents, False, n_agents // 2, n_agents // 2
+                    return [latest_version] * n_agents, [latest_rating] * n_agents, False
             else:
                 probs /= s
             chosen_first_idx = np.random.choice(len(probs), p=probs)
@@ -178,10 +170,10 @@ class Matchmaker(BaseMatchmaker):
                     if self.orange_agents_text_file is not None:
                         with open(self.orange_agents_text_file, 'w') as file:
                             file.write(versions[per_team])
-                    return versions, ratings, False, n_agents // 2, n_agents // 2
+                    return versions, ratings, False
                 else:
                     mid = len(versions) // 2
-                    return (versions[mid:] + versions[:mid]), (ratings[mid:] + ratings[:mid]), False, n_agents // 2, n_agents // 2
+                    return (versions[mid:] + versions[:mid]), (ratings[mid:] + ratings[:mid]), False
             elif has_pretrained:
                 for i, n_agent in enumerate(n_each_pretrained):
                     pretrained_agent = self.pretrained_agents[i]
@@ -230,10 +222,10 @@ class Matchmaker(BaseMatchmaker):
             versions += [ratings_keys_pool[chosen_idx]] * per_team
             ratings += [ratings_values_pool[chosen_idx]] * per_team
             if self.force_non_latest_orange or np.random.random() < 0.5:
-                return versions, ratings, evaluate, n_agents // 2, n_agents // 2
+                return versions, ratings, evaluate
             else:
                 mid = len(versions) // 2
-                return (versions[mid:] + versions[:mid]), (ratings[mid:] + ratings[:mid]), evaluate, n_agents // 2, n_agents // 2
+                return (versions[mid:] + versions[:mid]), (ratings[mid:] + ratings[:mid]), evaluate
         else:
             chosen_idxs = np.random.choice(len(probs), size=n_picks, p=probs)
             for chosen_idx in chosen_idxs:
@@ -261,7 +253,7 @@ class Matchmaker(BaseMatchmaker):
             s = qualities.sum()
             if s == 0:
                 # Bad luck, just do regular match
-                return [latest_version] * n_agents, [latest_rating] * n_agents, False, n_agents // 2, n_agents // 2
+                return [latest_version] * n_agents, [latest_rating] * n_agents, False
 
             # Pick a matchup, randomize ordering within team, and reorder versions and ratings accordingly
             # Due to the way combinations works, randomizing which team team1 is on (orange or blue) doesn't change anything
@@ -290,4 +282,4 @@ class Matchmaker(BaseMatchmaker):
             versions = [versions[idx] for idx in ordering]
             ratings = [ratings[idx] for idx in ordering]
 
-            return versions, ratings, evaluate, n_agents // 2, n_agents // 2
+            return versions, ratings, evaluate
