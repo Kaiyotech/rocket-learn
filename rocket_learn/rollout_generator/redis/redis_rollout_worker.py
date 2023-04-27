@@ -116,8 +116,8 @@ class RedisRolloutWorker:
         self.gamemode_weights = gamemode_weights
         if self.gamemode_weights is None:
             self.gamemode_weights = {'1v1': 1 / 3, '2v2': 1 / 3, '3v3': 1 / 3}
-        assert sum(self.gamemode_weights.values()
-                   ) == 1, "gamemode_weights must sum to 1"
+        assert np.isclose(sum(self.gamemode_weights.values()),
+                          1), "gamemode_weights must sum to 1"
         self.target_weights = copy.copy(self.gamemode_weights)
         # change weights from percentage of experience desired to percentage of gamemodes necessary (approx)
         self.current_weights = copy.copy(self.gamemode_weights)
@@ -300,6 +300,7 @@ class RedisRolloutWorker:
                     agents.append(self.current_agent)
                     versions.append(latest_version)
 
+                versions = [v if v != -1 else latest_version for v in versions]
                 ratings = ["na"] * len(versions)
             else:
                 versions, ratings, evaluate, blue, orange = self.matchmaker.generate_matchup(self.redis,
@@ -349,6 +350,7 @@ class RedisRolloutWorker:
                                                                               eval_setter=self.eval_setter)
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
+                print()
             else:
                 if not self.streamer_mode:
                     print("ROLLOUT\n" + table_str)

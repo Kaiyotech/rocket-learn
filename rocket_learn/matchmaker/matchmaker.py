@@ -53,13 +53,9 @@ class Matchmaker(BaseMatchmaker):
     def generate_matchup(self, redis, n_agents, evaluate):
         full_team_match = np.random.random() < (
             self.full_team_evaluations if evaluate else self.full_team_trainings)
-        if full_team_match:
-            n_picks = 2
-        else:
-            n_picks = n_agents
         if evaluate:
             n_agents = np.random.choice([2, 4, 6])
-        else:
+        if not evaluate:
             n_non_latest = np.random.choice(
                 len(self.non_latest_version_prob), p=self.non_latest_version_prob)
             if full_team_match:
@@ -68,14 +64,10 @@ class Matchmaker(BaseMatchmaker):
             else:
                 # We only want a maximum of half the agents to be non latest in training matchups
                 n_non_latest = min(n_agents // 2, n_non_latest)
-            if self.past_version_prob == 1:
-                n_past_version = n_non_latest
-            else:
-                n_past_version = np.random.binomial(
-                    n_non_latest, self.past_version_prob)
-                n_each_pretrained = np.random.multinomial(
-                    n_non_latest-n_past_version, self.pretrained_probs)
-            n_picks -= n_non_latest - n_past_version
+            n_past_version = np.random.binomial(
+                n_non_latest, self.past_version_prob)
+            n_each_pretrained = np.random.multinomial(
+                n_non_latest-n_past_version, self.pretrained_probs)
 
         per_team = n_agents // 2
         gamemode = f"{per_team}v{per_team}"
@@ -248,6 +240,8 @@ class Matchmaker(BaseMatchmaker):
                 ratings += [ratings_values_pool[chosen_idx]]
 
             # We now have all the versions and ratings that will be used in parallel lists. Now weight all permutations of matches by fairness and pick one
+            if len(versions) != n_agents:
+                print("what??")
             matchups = []
             qualities = []
             for team1 in itertools.combinations(range(n_agents), per_team):
