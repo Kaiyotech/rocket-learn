@@ -54,6 +54,14 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
     result = 0
 
     last_state = info['state']  # game_state for obs_building of other agents
+    pretrained_idx_tss_dict = {}
+    for idx, policy in enumerate(policies):
+        if isinstance(policy, HardcodedAgent):
+            if hasattr(policy, "tick_skip_skip"):
+                pretrained_idx_tss_dict[idx] = [policy.tick_skip_skip, 0]
+            else:
+                pretrained_idx_tss_dict[idx] = [1, 0]
+
     distinct_non_pretrained_versions_set = set([v for idx, v in enumerate(
         versions) if not isinstance(policies[idx], HardcodedAgent)])
     policy_version_idx_dict = {}
@@ -115,14 +123,20 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
             # get action indices, actions, and log probs for pretrained agents
             for idx in pretrained_idxs:
                 policy = policies[idx]
-                actions = policy.act(last_state, idx)
-                # make sure output is in correct format
-                if not isinstance(observations, np.ndarray):
-                    actions = np.array(actions)
+                if pretrained_idx_tss_dict[idx][1] == 0:
+                    actions = policy.act(last_state, idx)
+                    # make sure output is in correct format
+                    if not isinstance(observations, np.ndarray):
+                        actions = np.array(actions)
 
-                # TODO: add converter that takes normal 8 actions into action space
-                # actions = env._match._action_parser.convert_to_action_space(actions)
-                all_actions[idx] = actions
+                    # TODO: add converter that takes normal 8 actions into action space
+                    # actions = env._match._action_parser.convert_to_action_space(actions)
+                    all_actions[idx] = actions
+                    last_actions[idx] = actions
+                else:
+                    all_actions[idx] = last_actions[idx]
+                pretrained_idx_tss_dict[idx][1] = (
+                    pretrained_idx_tss_dict[idx][1] + 1) % pretrained_idx_tss_dict[idx][0]
 
             # The below code can be removed
             # if not isinstance(policies[0], HardcodedAgent) and all(policy == policies[0] for policy in policies):
