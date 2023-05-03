@@ -236,14 +236,14 @@ class RedisRolloutWorker:
                 version_info.append([v, f"{r.mu:.2f}±{2 * r.sigma:.2f}"])
 
         blue_versions, blue_ratings = list(zip(*version_info[:blue]))
-        orange_versions, orange_ratings = list(zip(*version_info[blue:]))
+        orange_versions, orange_ratings = list(zip(*version_info[blue:])) if orange > 0 else list(((0,), ("N/A",)))
 
         if blue < orange:
-            blue_versions += [""] * (orange - blue)
-            blue_ratings += [""] * (orange - blue)
+            blue_versions += ("",) * (orange - blue)
+            blue_ratings += ("",) * (orange - blue)
         elif orange < blue:
-            orange_versions += [""] * (blue - orange)
-            orange_ratings += [""] * (blue - orange)
+            orange_versions += ("",) * (blue - orange)
+            orange_ratings += ("",) * (blue - orange)
 
         table_str = tabulate(list(zip(blue_versions, blue_ratings, orange_versions, orange_ratings)),
                              headers=["Blue", "rating", "Orange", "rating"], tablefmt="rounded_outline")
