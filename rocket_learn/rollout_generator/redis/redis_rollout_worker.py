@@ -126,7 +126,11 @@ class RedisRolloutWorker:
             self.current_weights[k] /= int(b)
         self.current_weights = {k: self.current_weights[k] / (sum(self.current_weights.values()) + 1e-8) for k in
                                 self.current_weights.keys()}
-        self.mean_exp_grant = {'1v1': 1000, '2v2': 2000, '3v3': 3000}
+        self.mean_exp_grant = {}
+        for k in self.gamemode_weights.keys():
+            b, o = k.split('v')
+            size = int(b) + int(o)
+            self.mean_exp_grant[k] = 500 * size
         self.ema_alpha = gamemode_weight_ema_alpha
         self.local_cache_name = local_cache_name
 
