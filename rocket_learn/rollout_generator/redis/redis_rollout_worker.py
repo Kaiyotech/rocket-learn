@@ -75,6 +75,7 @@ class RedisRolloutWorker:
                  visualize=False,
                  dodge_deadzone=0.8,
                  live_progress=True,
+                 tick_skip=8,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
@@ -171,7 +172,8 @@ class RedisRolloutWorker:
         if simulator:
             import rlgym_sim
             self.env = rlgym_sim.gym.Gym(match=self.match, copy_gamestate_every_step=True, visualize=visualize,
-                                         dodge_deadzone=dodge_deadzone)
+                                         dodge_deadzone=dodge_deadzone, tick_skip=tick_skip, gravity=1.0,
+                                         boost_consumption=1.0)
         else:
             self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
                            use_injector=True, force_paging=force_paging, raise_on_crash=True, auto_minimize=auto_minimize,
