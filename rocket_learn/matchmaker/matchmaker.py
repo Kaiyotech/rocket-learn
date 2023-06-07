@@ -66,8 +66,9 @@ class Matchmaker(BaseMatchmaker):
                 n_non_latest = min(n_agents // 2, n_non_latest)
             n_past_version = np.random.binomial(
                 n_non_latest, self.past_version_prob)
-            n_each_pretrained = np.random.multinomial(
-                n_non_latest-n_past_version, self.pretrained_probs)
+            if self.consider_pretrained:
+                n_each_pretrained = np.random.multinomial(
+                    n_non_latest-n_past_version, self.pretrained_probs)
 
         per_team = n_agents // 2
         gamemode = f"{per_team}v{per_team}"
