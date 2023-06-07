@@ -31,7 +31,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
         from rlgym_tools.extra_terminals.game_condition import GameCondition
         terminals = env._match._terminal_conditions  # noqa
         reward = env._match._reward_fn  # noqa
-        game_condition = GameCondition(seconds_per_goal_forfeit=10 * env._match._team_size,  # noqa
+        game_condition = GameCondition(seconds_per_goal_forfeit=10 * 3,  # noqa
                                        max_overtime_seconds=300,
                                        max_no_touch_seconds=30)  # noqa
         env._match._terminal_conditions = [game_condition]  # noqa
