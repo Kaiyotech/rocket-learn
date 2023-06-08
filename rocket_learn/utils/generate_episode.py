@@ -16,7 +16,9 @@ from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
 
 def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), evaluate=False, scoreboard=None, progress=False, selector_skip_k=None,
-                     force_selector_choice=None) -> (List[ExperienceBuffer], int):  # type: ignore
+                     force_selector_choice=None,
+                     unlock_selector_indices=None,
+                     ) -> (List[ExperienceBuffer], int):  # type: ignore
     """
     create experience buffer data by interacting with the environment(s)
     """
@@ -207,6 +209,8 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                         if policies[i].deterministic or force_selector_choice[i]:
                             do_selector[i] = True
                             force_selector_choice[i] = False
+                        if unlock_selector_indices is not None and all_actions[i] in unlock_selector_indices:
+                            do_selector[i] = True
             else:
                 do_selector = [True] * 6
             for i in range(len(tick)):

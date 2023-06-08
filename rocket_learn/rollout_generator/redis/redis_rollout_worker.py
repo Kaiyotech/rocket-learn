@@ -53,6 +53,7 @@ class RedisRolloutWorker:
      :param gamemode_weights: dict of dynamic gamemode choice weights. If None, default equal experience
      :param gamemode_weight_ema_alpha: alpha for the exponential moving average of gamemode weighting
      :param selector_skip_k: value to control the tick skip probability of the selector
+     :param unlock_selector_indices: list of indices which should not have selector_skip implemented
     """
 
     def __init__(self, redis: Redis, name: str, match: Match, matchmaker: BaseMatchmaker,
@@ -69,6 +70,7 @@ class RedisRolloutWorker:
                  pipeline_limit_bytes=10_000_000,
                  gamemode_weight_ema_alpha=0.02,
                  selector_skip_k=None,
+                 unlock_selector_indices=None,
                  eval_setter=DefaultState(),
                  epic_rl_exe_path=None,
                  simulator=False,
@@ -78,6 +80,7 @@ class RedisRolloutWorker:
                  tick_skip=8,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
+        self.unlock_selector_indices = unlock_selector_indices
         self.eval_setter = eval_setter
         self.redis = redis
         self.name = name
@@ -353,7 +356,8 @@ class RedisRolloutWorker:
                                                                               progress=self.live_progress,
                                                                               selector_skip_k=self.selector_skip_k,
                                                                               force_selector_choice=self.force_selector_choice,
-                                                                              eval_setter=self.eval_setter)
+                                                                              eval_setter=self.eval_setter,
+                                                                              unlock_selector_indices=self.unlock_selector_indices,)
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
                 print()
@@ -367,7 +371,9 @@ class RedisRolloutWorker:
                         evaluate=False,
                         scoreboard=self.scoreboard,
                         selector_skip_k=self.selector_skip_k,
-                        force_selector_choice=self.force_selector_choice)
+                        force_selector_choice=self.force_selector_choice,
+                        unlock_selector_indices=self.unlock_selector_indices,
+                    )
 
                     # Happens sometimes, unknown reason
                     if len(rollouts[0].observations) <= 1:
