@@ -120,7 +120,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                         last_actions[idx] = actions
                     else:
                         actions = last_actions[idx]
-                    actions[1] = boost_list[idx]
+                    actions[1] = boost_list[i]
                     all_actions[idx] = actions
 
             # get action indices, actions, and log probs for pretrained agents
