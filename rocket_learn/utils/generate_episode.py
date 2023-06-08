@@ -209,7 +209,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                         if policies[i].deterministic or force_selector_choice[i]:
                             do_selector[i] = True
                             force_selector_choice[i] = False
-                        if unlock_selector_indices is not None and all_actions[i] in unlock_selector_indices:
+                        if unlock_selector_indices is not None and all_actions[i][0] in unlock_selector_indices:
                             do_selector[i] = True
             else:
                 do_selector = [True] * 6
