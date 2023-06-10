@@ -110,7 +110,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                 action_indices = policy.sample_action(dist)
                 log_probs = policy.log_prob(dist, action_indices)
                 action_indices_list = list(action_indices.numpy())
-                boost_list = [column[1] for column in action_indices_list]
+                # boost_list = [column[1] for column in action_indices_list]
                 log_probs_list = list(log_probs.numpy())
                 for i, idx in enumerate(idxs):
                     all_indices[idx] = action_indices_list[i]
@@ -120,7 +120,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                         last_actions[idx] = actions
                     else:
                         actions = last_actions[idx]
-                    actions[1] = boost_list[i]
+                    # actions[1] = boost_list[i]
                     all_actions[idx] = actions
 
             # get action indices, actions, and log probs for pretrained agents
