@@ -414,8 +414,9 @@ class PPO:
                 except ValueError as e:
                     print("ValueError in evaluate_actions", e)
                     continue
-
-                ratio = torch.exp(log_prob - old_log_prob)
+                diff_log_prob = log_prob - old_log_prob
+                #  stabilize the ratio for small log prob
+                ratio = torch.where(diff_log_prob.abs() < 0.00005, 1 + diff_log_prob, torch.exp(diff_log_prob))
 
                 values_pred = self.agent.critic(obs)
 
