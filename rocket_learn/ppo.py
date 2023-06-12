@@ -311,9 +311,9 @@ class PPO:
             returns = advantages + values
             if self.action_selection_dict is not None:
                 flat_actions = actions[:, 0].flatten()
+                # fold second half into first for boost stuff
+                flat_actions = np.where(flat_actions >= self.num_actions, flat_actions - self.num_actions, flat_actions)
                 unique, counts = np.unique(flat_actions, return_counts=True)
-                counts = counts[:self.num_actions] + counts[self.num_actions:]  # fold second half into first for boost stuff
-                unique = unique[:self.num_actions]  # remove second half
                 for i, value in enumerate(unique):
                     action_count[value] += counts[i]
                 action_changes += (np.diff(flat_actions) != 0).sum()
