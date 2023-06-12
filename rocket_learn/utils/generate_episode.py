@@ -112,7 +112,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                 log_probs = policy.log_prob(dist, action_indices)
                 action_indices_list = list(action_indices.numpy())
                 if selector_skip_k is not None:
-                    boost_list = [item >= parser_boost_split for item in action_indices_list]
+                    boost_list = [item[0] >= parser_boost_split for item in action_indices_list]
                 # boost_list = [column[1] for column in action_indices_list]
                 log_probs_list = list(log_probs.numpy())
                 for i, idx in enumerate(idxs):
@@ -124,9 +124,9 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                     else:
                         actions = last_actions[idx]
                     if selector_skip_k is not None:
-                        if boost_list[i] and actions < parser_boost_split:
+                        if boost_list[i] and actions[0] < parser_boost_split:
                             actions += parser_boost_split
-                        elif not boost_list[i] and actions >= parser_boost_split:
+                        elif not boost_list[i] and actions[0] >= parser_boost_split:
                             actions -= parser_boost_split
                     # actions[1] = boost_list[i]
                     all_actions[idx] = actions
