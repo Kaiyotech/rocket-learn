@@ -71,6 +71,7 @@ class RedisRolloutWorker:
                  gamemode_weight_ema_alpha=0.02,
                  selector_skip_k=None,
                  unlock_selector_indices=None,
+                 parser_boost_split=None,
                  eval_setter=DefaultState(),
                  epic_rl_exe_path=None,
                  simulator=False,
@@ -81,6 +82,7 @@ class RedisRolloutWorker:
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.unlock_selector_indices = unlock_selector_indices
+        self.parser_boost_split = parser_boost_split
         self.eval_setter = eval_setter
         self.redis = redis
         self.name = name
@@ -357,7 +359,9 @@ class RedisRolloutWorker:
                                                                               selector_skip_k=self.selector_skip_k,
                                                                               force_selector_choice=self.force_selector_choice,
                                                                               eval_setter=self.eval_setter,
-                                                                              unlock_selector_indices=self.unlock_selector_indices,)
+                                                                              unlock_selector_indices=self.unlock_selector_indices,
+                                                                              parser_boost_split=self.parser_boost_split,
+                                                                              )
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
                 print()
@@ -373,6 +377,7 @@ class RedisRolloutWorker:
                         selector_skip_k=self.selector_skip_k,
                         force_selector_choice=self.force_selector_choice,
                         unlock_selector_indices=self.unlock_selector_indices,
+                        parser_boost_split=self.parser_boost_split,
                     )
 
                     # Happens sometimes, unknown reason
