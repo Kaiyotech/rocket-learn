@@ -76,7 +76,7 @@ class RedisRolloutWorker:
                  epic_rl_exe_path=None,
                  simulator=False,
                  visualize=False,
-                 dodge_deadzone=0.8,
+                 dodge_deadzone=0.5,
                  live_progress=True,
                  tick_skip=8,
                  ):
