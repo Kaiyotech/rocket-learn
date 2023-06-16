@@ -71,6 +71,7 @@ class RedisRolloutWorker:
                  gamemode_weight_ema_alpha=0.02,
                  selector_skip_k=None,
                  unlock_selector_indices=None,
+                 unlock_indices_group=None,
                  parser_boost_split=None,
                  eval_setter=DefaultState(),
                  epic_rl_exe_path=None,
@@ -81,6 +82,7 @@ class RedisRolloutWorker:
                  tick_skip=8,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
+        self.unlock_indices_group = unlock_indices_group
         self.unlock_selector_indices = unlock_selector_indices
         self.parser_boost_split = parser_boost_split
         self.eval_setter = eval_setter
@@ -360,6 +362,7 @@ class RedisRolloutWorker:
                                                                               force_selector_choice=self.force_selector_choice,
                                                                               eval_setter=self.eval_setter,
                                                                               unlock_selector_indices=self.unlock_selector_indices,
+                                                                              unlock_indices_group=self.unlock_indices_group,
                                                                               parser_boost_split=self.parser_boost_split,
                                                                               )
                 rollouts = []
@@ -377,6 +380,7 @@ class RedisRolloutWorker:
                         selector_skip_k=self.selector_skip_k,
                         force_selector_choice=self.force_selector_choice,
                         unlock_selector_indices=self.unlock_selector_indices,
+                        unlock_indices_group=self.unlock_indices_group,
                         parser_boost_split=self.parser_boost_split,
                     )
 

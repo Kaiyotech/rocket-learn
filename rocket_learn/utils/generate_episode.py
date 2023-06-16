@@ -18,6 +18,7 @@ from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), evaluate=False, scoreboard=None, progress=False, selector_skip_k=None,
                      force_selector_choice=None,
                      unlock_selector_indices=None,
+                     unlock_indices_group=None,
                      parser_boost_split=None,
                      ) -> (List[ExperienceBuffer], int):  # type: ignore
     """
@@ -118,8 +119,11 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                 for i, idx in enumerate(idxs):
                     all_indices[idx] = action_indices_list[i]
                     all_log_probs[idx] = log_probs_list[i]
+                    actions = policy.env_compatible(action_indices[i])
                     if do_selector[idx]:
-                        actions = policy.env_compatible(action_indices[i])
+                        last_actions[idx] = actions
+                    elif selector_skip_k is not None and unlock_indices_group is not None and \
+                            actions[0] in unlock_indices_group and last_actions[idx][0] in unlock_indices_group:
                         last_actions[idx] = actions
                     else:
                         actions = last_actions[idx]
