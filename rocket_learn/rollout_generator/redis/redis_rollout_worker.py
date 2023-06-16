@@ -458,7 +458,7 @@ class RedisRolloutWorker:
                         len(self.red_pipe) > 100 or self.pipeline_size > self.pipeline_limit:
                     n_items = self.red_pipe.execute()
                     self.pipeline_size = 0
-                    if n_items[-1] >= 10000:
+                    if n_items[-1] >= 1000:
                         print(
                             "Had to limit rollouts. Learner may have have crashed, or is overloaded")
                         self.redis.ltrim(ROLLOUTS, -100, -1)
