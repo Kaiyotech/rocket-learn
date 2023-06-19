@@ -21,6 +21,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                      unlock_indices_group=None,
                      parser_boost_split=None,
                      selector_boost_skip_k=None,
+                     initial_choice_block_indices=None,
                      ) -> (List[ExperienceBuffer], int):  # type: ignore
     """
     create experience buffer data by interacting with the environment(s)
@@ -91,6 +92,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
         do_boost = [True] * len(policies)
         last_actions = [None] * len(policies)
         last_boost = [None] * len(policies)
+        first_step = True
         while True:
             # all_indices = []
             # all_actions = []
@@ -114,6 +116,10 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                     obs = np.concatenate([obs for idx, obs in enumerate(
                         observations) if idx in idxs], axis=0)
                 dist = policy.get_action_distribution(obs)
+                if first_step:
+                    # update dist to set blocked indices to -inf
+                    for index in initial_choice_block_indices:
+                        dist[index] = -torch.inf
                 action_indices = policy.sample_action(dist)
                 action_indices_list = list(action_indices.numpy())
                 if selector_skip_k is not None:
@@ -311,6 +317,8 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                     observations, info = env.reset(return_info=True)
 
             last_state = info['state']
+
+            first_step = False
 
     if scoreboard is not None:
         scoreboard.random_resets = random_resets  # noqa Checked above

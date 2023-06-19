@@ -73,6 +73,7 @@ class RedisRolloutWorker:
                  selector_boost_skip_k=None,
                  unlock_selector_indices=None,
                  unlock_indices_group=None,
+                 initial_choice_block_indices=None,
                  parser_boost_split=None,
                  eval_setter=DefaultState(),
                  epic_rl_exe_path=None,
@@ -83,6 +84,7 @@ class RedisRolloutWorker:
                  tick_skip=8,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
+        self.initial_choice_block_indices = initial_choice_block_indices
         self.selector_boost_skip_k = selector_boost_skip_k
         self.unlock_indices_group = unlock_indices_group
         self.unlock_selector_indices = unlock_selector_indices
@@ -367,6 +369,7 @@ class RedisRolloutWorker:
                                                                               unlock_indices_group=self.unlock_indices_group,
                                                                               parser_boost_split=self.parser_boost_split,
                                                                               selector_boost_skip_k=self.selector_boost_skip_k,
+                                                                              initial_choice_block_indices=self.initial_choice_block_indices,
                                                                               )
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
@@ -385,7 +388,8 @@ class RedisRolloutWorker:
                         unlock_selector_indices=self.unlock_selector_indices,
                         unlock_indices_group=self.unlock_indices_group,
                         parser_boost_split=self.parser_boost_split,
-                        selector_boost_skip_k=self.selector_boost_skip_k
+                        selector_boost_skip_k=self.selector_boost_skip_k,
+                        initial_choice_block_indices=self.initial_choice_block_indices,
                     )
 
                     # Happens sometimes, unknown reason
