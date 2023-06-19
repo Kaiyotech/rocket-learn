@@ -115,11 +115,10 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                 else:
                     obs = np.concatenate([obs for idx, obs in enumerate(
                         observations) if idx in idxs], axis=0)
-                dist = policy.get_action_distribution(obs)
                 if first_step:
-                    # update dist to set blocked indices to -inf
-                    for index in initial_choice_block_indices:
-                        dist[index] = -torch.inf
+                    dist = policy.get_action_distribution(obs, initial_choice_block_indices)
+                else:
+                    dist = policy.get_action_distribution(obs)
                 action_indices = policy.sample_action(dist)
                 action_indices_list = list(action_indices.numpy())
                 if selector_skip_k is not None:
