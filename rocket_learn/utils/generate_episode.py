@@ -141,7 +141,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                     all_actions[idx] = actions
                     all_indices[idx] = actions
                     actual_action_indices[i] = actions
-                action_indices = torch.tensor(actual_action_indices, dtype=torch.float64)
+                action_indices = torch.tensor(np.array(actual_action_indices), dtype=torch.float64)
                 log_probs = policy.log_prob(dist, action_indices)
                 log_probs_list = list(log_probs.numpy())
                 for i, idx in enumerate(idxs):
