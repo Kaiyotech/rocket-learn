@@ -70,6 +70,7 @@ class RedisRolloutWorker:
                  pipeline_limit_bytes=10_000_000,
                  gamemode_weight_ema_alpha=0.02,
                  selector_skip_k=None,
+                 selector_boost_skip_k=None,
                  unlock_selector_indices=None,
                  unlock_indices_group=None,
                  parser_boost_split=None,
@@ -82,6 +83,7 @@ class RedisRolloutWorker:
                  tick_skip=8,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
+        self.selector_boost_skip_k = selector_boost_skip_k
         self.unlock_indices_group = unlock_indices_group
         self.unlock_selector_indices = unlock_selector_indices
         self.parser_boost_split = parser_boost_split
@@ -364,6 +366,7 @@ class RedisRolloutWorker:
                                                                               unlock_selector_indices=self.unlock_selector_indices,
                                                                               unlock_indices_group=self.unlock_indices_group,
                                                                               parser_boost_split=self.parser_boost_split,
+                                                                              selector_boost_skip_k=self.selector_boost_skip_k,
                                                                               )
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
@@ -382,6 +385,7 @@ class RedisRolloutWorker:
                         unlock_selector_indices=self.unlock_selector_indices,
                         unlock_indices_group=self.unlock_indices_group,
                         parser_boost_split=self.parser_boost_split,
+                        selector_boost_skip_k=self.selector_boost_skip_k
                     )
 
                     # Happens sometimes, unknown reason

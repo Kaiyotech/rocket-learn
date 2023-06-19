@@ -20,6 +20,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                      unlock_selector_indices=None,
                      unlock_indices_group=None,
                      parser_boost_split=None,
+                     selector_boost_skip_k=None,
                      ) -> (List[ExperienceBuffer], int):  # type: ignore
     """
     create experience buffer data by interacting with the environment(s)
@@ -85,8 +86,11 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
     b = o = 0
     with torch.no_grad():
         tick = [0] * len(policies)
+        boost_tick = [0] * len(policies)
         do_selector = [True] * len(policies)
+        do_boost = [True] * len(policies)
         last_actions = [None] * len(policies)
+        last_boost = [None] * len(policies)
         while True:
             # all_indices = []
             # all_actions = []
@@ -102,6 +106,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
             # get action indices, actions, and log probs for non pretrained agents
             for idxs in policy_version_idx_dict.values():
                 policy = policies[idxs[0]]
+                actual_action_indices = [None] * len(idxs)
                 if isinstance(observations[idxs[0]], tuple):
                     obs = tuple(np.concatenate([obs[i] for idx, obs in enumerate(observations) if idx in idxs], axis=0)
                                 for i in range(len(observations[idxs[0]])))
@@ -110,30 +115,37 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                         observations) if idx in idxs], axis=0)
                 dist = policy.get_action_distribution(obs)
                 action_indices = policy.sample_action(dist)
-                log_probs = policy.log_prob(dist, action_indices)
                 action_indices_list = list(action_indices.numpy())
                 if selector_skip_k is not None:
                     boost_list = [item[0] >= parser_boost_split for item in action_indices_list]
                 # boost_list = [column[1] for column in action_indices_list]
-                log_probs_list = list(log_probs.numpy())
                 for i, idx in enumerate(idxs):
                     all_indices[idx] = action_indices_list[i]
-                    all_log_probs[idx] = log_probs_list[i]
                     actions = policy.env_compatible(action_indices[i])
                     if do_selector[idx]:
                         last_actions[idx] = actions
+                        last_boost[idx] = boost_list[i]
                     elif selector_skip_k is not None and unlock_indices_group is not None and \
                             actions[0] in unlock_indices_group and last_actions[idx][0] in unlock_indices_group:
                         last_actions[idx] = actions
+                        last_boost[idx] = boost_list[i]
                     else:
                         actions = last_actions[idx]
-                    if selector_skip_k is not None:
-                        if boost_list[i] and actions[0] < parser_boost_split:
-                            actions += parser_boost_split
-                        elif not boost_list[i] and actions[0] >= parser_boost_split:
-                            actions -= parser_boost_split
+                        if selector_skip_k is not None and do_boost[idx]:
+                            if boost_list[i] and actions[0] < parser_boost_split:
+                                actions += parser_boost_split
+                            elif not boost_list[i] and actions[0] >= parser_boost_split:
+                                actions -= parser_boost_split
+                            last_boost[idx] = boost_list[i]
                     # actions[1] = boost_list[i]
                     all_actions[idx] = actions
+                    all_indices[idx] = actions
+                    actual_action_indices[i] = actions
+                action_indices = torch.tensor(actual_action_indices, dtype=torch.float64)
+                log_probs = policy.log_prob(dist, action_indices)
+                log_probs_list = list(log_probs.numpy())
+                for i, idx in enumerate(idxs):
+                    all_log_probs[idx] = log_probs_list[i]
 
             # get action indices, actions, and log probs for pretrained agents
             for idx in pretrained_idxs:
@@ -218,6 +230,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
             if selector_skip_k is not None:
                 for i in range(len(do_selector)):
                     if not isinstance(policies[i], HardcodedAgent):
+                        do_boost[i] = do_selector_action(selector_boost_skip_k, boost_tick[i])
                         do_selector[i] = do_selector_action(
                             selector_skip_k, tick[i])
                         if policies[i].deterministic or force_selector_choice[i]:
@@ -225,10 +238,14 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                             force_selector_choice[i] = False
                         if unlock_selector_indices is not None and all_actions[i][0] in unlock_selector_indices:
                             do_selector[i] = True
+                    if do_selector[i]:
+                        do_boost[i] = True
             else:
                 do_selector = [True] * 6
+                do_boost = [True] * 6
             for i in range(len(tick)):
                 tick[i] = 0 if do_selector[i] else tick[i] + 1
+                boost_tick[i] = 0 if do_boost[i] else boost_tick[i] + 1
 
             # to allow different action spaces, pad out short ones to longest length (assume later unpadding in parser)
             length = max([a.shape[0] for a in all_actions])
