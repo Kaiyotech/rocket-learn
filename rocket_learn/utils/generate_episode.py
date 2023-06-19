@@ -22,6 +22,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                      parser_boost_split=None,
                      selector_boost_skip_k=None,
                      initial_choice_block_indices=None,
+                     initial_choice_block_weight=None,
                      ) -> (List[ExperienceBuffer], int):  # type: ignore
     """
     create experience buffer data by interacting with the environment(s)
@@ -115,7 +116,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                 else:
                     obs = np.concatenate([obs for idx, obs in enumerate(
                         observations) if idx in idxs], axis=0)
-                if first_step:
+                if first_step and np.random.random() <= initial_choice_block_weight:
                     dist = policy.get_action_distribution(obs, initial_choice_block_indices)
                 else:
                     dist = policy.get_action_distribution(obs)
