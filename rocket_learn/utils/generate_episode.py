@@ -116,7 +116,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                 else:
                     obs = np.concatenate([obs for idx, obs in enumerate(
                         observations) if idx in idxs], axis=0)
-                if first_step and np.random.random() <= initial_choice_block_weight:
+                if initial_choice_block_weight is not None and first_step and np.random.random() <= initial_choice_block_weight:
                     dist = policy.get_action_distribution(obs, initial_choice_block_indices)
                 else:
                     dist = policy.get_action_distribution(obs)
