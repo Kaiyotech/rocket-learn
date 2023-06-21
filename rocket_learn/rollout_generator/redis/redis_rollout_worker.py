@@ -416,7 +416,7 @@ class RedisRolloutWorker:
                         (episode_exp - old_exp) * self.ema_alpha) + old_exp
                 post_stats = f"Rollout finished after {len(rollouts[0].observations)} steps ({self.total_steps_generated} total steps), result was {str_result}"
                 if result != 0:
-                    post_stats += f", goal speed: {goal_speed:.2f} kph"
+                    post_stats += f", goal speed: {goal_speed:.2f} kph\nScoreline is {int(state.blue_score)} - {int(state.orange_score)}"
 
                 if not self.streamer_mode:
                     print(post_stats)
