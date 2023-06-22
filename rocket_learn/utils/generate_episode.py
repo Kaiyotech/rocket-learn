@@ -89,11 +89,8 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
     b = o = 0
     with torch.no_grad():
         tick = [0] * len(policies)
-        boost_tick = [0] * len(policies)
         do_selector = [True] * len(policies)
-        do_boost = [True] * len(policies)
         last_actions = [None] * len(policies)
-        last_boost = [None] * len(policies)
         first_step = True
         while True:
             # all_indices = []
@@ -123,28 +120,16 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                     dist = policy.get_action_distribution(obs)
                 action_indices = policy.sample_action(dist)
                 action_indices_list = list(action_indices.numpy())
-                if selector_skip_k is not None:
-                    boost_list = [item[0] >= parser_boost_split for item in action_indices_list]
-                # boost_list = [column[1] for column in action_indices_list]
                 for i, idx in enumerate(idxs):
                     all_indices[idx] = action_indices_list[i]
                     actions = policy.env_compatible(action_indices[i])
                     if do_selector[idx]:
                         last_actions[idx] = actions
-                        last_boost[idx] = boost_list[i]
                     elif selector_skip_k is not None and unlock_indices_group is not None and \
                             actions[0] in unlock_indices_group and last_actions[idx][0] in unlock_indices_group:
                         last_actions[idx] = actions
-                        last_boost[idx] = boost_list[i]
                     else:
                         actions = last_actions[idx]
-                        if selector_skip_k is not None and do_boost[idx]:
-                            if boost_list[i] and actions[0] < parser_boost_split:
-                                actions += parser_boost_split
-                            elif not boost_list[i] and actions[0] >= parser_boost_split:
-                                actions -= parser_boost_split
-                            last_boost[idx] = boost_list[i]
-                    # actions[1] = boost_list[i]
                     all_actions[idx] = actions
                     all_indices[idx] = actions
                     actual_action_indices[i] = actions
@@ -200,7 +185,6 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
             if selector_skip_k is not None:
                 for i in range(len(do_selector)):
                     if not isinstance(policies[i], HardcodedAgent):
-                        do_boost[i] = do_selector_action(selector_boost_skip_k, boost_tick[i])
                         do_selector[i] = do_selector_action(
                             selector_skip_k, tick[i])
                         if policies[i].deterministic or force_selector_choice[i]:
@@ -208,14 +192,10 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                             force_selector_choice[i] = False
                         if unlock_selector_indices is not None and all_actions[i][0] in unlock_selector_indices:
                             do_selector[i] = True
-                    if do_selector[i]:
-                        do_boost[i] = True
             else:
                 do_selector = [True] * 6
-                do_boost = [True] * 6
             for i in range(len(tick)):
                 tick[i] = 0 if do_selector[i] else tick[i] + 1
-                boost_tick[i] = 0 if do_boost[i] else boost_tick[i] + 1
 
             # prune data that belongs to old agents
             old_obs = [a for i, a in enumerate(
