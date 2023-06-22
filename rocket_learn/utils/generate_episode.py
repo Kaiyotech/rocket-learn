@@ -12,6 +12,7 @@ from rocket_learn.agent.policy import Policy
 from rocket_learn.agent.pretrained_policy import HardcodedAgent
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
+from rocket_learn.utils.truncated_condition import TruncatedCondition
 
 
 def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
@@ -186,6 +187,12 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
             all_actions = np.vstack(all_actions)
             old_obs = observations
             observations, rewards, done, info = env.step(all_actions)
+
+            truncated = False
+            for terminal in env._match._terminal_conditions:  # noqa
+                if isinstance(terminal, TruncatedCondition):
+                    truncated |= terminal.is_truncated(info["state"])
+
             if len(policies) <= 1:
                 observations, rewards = [observations], [rewards]
 
@@ -232,7 +239,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
             # Might be different if only one agent?
             if not evaluate:  # Evaluation matches can be long, no reason to keep them in memory
                 for exp_buf, obs, act, rew, log_prob in zip(rollouts, old_obs, all_indices, rewards, all_log_probs):
-                    exp_buf.add_step(obs, act, rew, done, log_prob, info)
+                    exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, info)
 
             if progress is not None:
                 progress.update()
@@ -242,7 +249,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                     prog_str += f", BLUE {b} - {o} ORANGE"
                 progress.set_postfix_str(prog_str)
 
-            if done:
+            if done or truncated:
                 result += info["result"]
                 if info["result"] > 0:
                     b += 1
@@ -263,9 +270,6 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
     if scoreboard is not None:
         scoreboard.random_resets = random_resets  # noqa Checked above
 
-    if progress is not None:
-        progress.close()
-
     if evaluate:
         if isinstance(env._match._state_setter, DynamicGMSetter):  # noqa
             env._match._state_setter.setter = state_setter  # noqa
@@ -274,6 +278,9 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
         env._match._terminal_conditions = terminals  # noqa
         env._match._reward_fn = reward  # noqa
         return result
+
+    if progress is not None:
+        progress.close()
 
     return rollouts, result
 

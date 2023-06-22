@@ -9,7 +9,6 @@ from uuid import uuid4
 import sqlite3 as sql
 
 import numpy as np
-
 from redis import Redis
 from rlgym.envs import Match
 from rlgym.gamelaunch import LaunchPreference
@@ -278,8 +277,7 @@ class RedisRolloutWorker:
             available_version = self.redis.get(VERSION_LATEST)
             if available_version is None:
                 time.sleep(1)
-                # Wait for version to be published (not sure if this is necessary?)
-                continue
+                continue  # Wait for version to be published (not sure if this is necessary?)
             available_version = int(available_version)
 
             # Only try to download latest version when new
@@ -287,8 +285,7 @@ class RedisRolloutWorker:
                 model_bytes = self.redis.get(MODEL_LATEST)
                 if model_bytes is None:
                     time.sleep(1)
-                    # This is maybe not necessary? Can't hurt to leave it in.
-                    continue
+                    continue  # This is maybe not necessary? Can't hurt to leave it in.
                 latest_version = available_version
                 updated_agent = _unserialize_model(model_bytes)
                 self.current_agent = updated_agent
