@@ -367,8 +367,12 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         if self.pretrained_agents_keys:
             pretrained_qualities = {}
             for gamemode in self.gamemodes:
-                non_pretrained_min_rating = min(
-                    [r.mu for r in get_ratings(gamemode, self.redis).values()])
+                normal_ratings_dict = get_ratings(gamemode, self.redis).values()
+                if len(normal_ratings_dict) > 0:
+                    non_pretrained_min_rating = min(
+                        [r.mu for r in normal_ratings_dict])
+                else:
+                    non_pretrained_min_rating = Rating().mu
                 qualities = get_pretrained_ratings(gamemode, self.redis)
                 pretrained_qualities[gamemode] = []
                 for agent, rating in qualities.items():
