@@ -45,11 +45,19 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             gamemodes=("1v1", "2v2", "3v3"),
             pretrained_agents: PretrainedAgents = None,
             stat_trackers: Optional[List[StatTracker]] = None,
+            selector_skip_k=None,
+            selector_skip_schedule=None,
     ):
         self.lastsave_ts = None
         self.name = name
         self.tot_bytes = 0
         self.redis = redis
+        self.selector_skip_k = selector_skip_k
+        if self.selector_skip_k is not None:
+            self.redis.set("selector_skip_k", 0.0004)
+            self.selector_skip_schedule = selector_skip_schedule
+        else:
+            self.redis.delete("selector_skip_k")
         self.logger = logger
         self.pretrained_agents_keys = []
         if pretrained_agents is not None:
@@ -410,6 +418,10 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             self.logger.log({f"stat/{name}": value for name,
                             value in self._get_stats().items()}, commit=False)
         self._reset_stats()
+
+        # do selector schedule based on n_updates here
+        if self.selector_skip_schedule is not None:
+            self.selector_skip_k =
 
         if n_updates % self.model_freq == 0:
             print("Adding model to pool...")
