@@ -97,6 +97,8 @@ class RedisRolloutWorker:
         self.matchmaker = matchmaker
 
         self.selector_skip_k = selector_skip_k
+        if self.selector_skip_k is not None:
+            self.selector_skip_k = float(self.redis.get("selector_skip_k"))
         self.force_selector_choice = [False] * 6
 
         assert send_gamestates or send_obs, "Must have at least one of obs or states"
@@ -447,6 +449,10 @@ class RedisRolloutWorker:
                 # t.start()
                 # time.sleep(0.01)
 
+                # update selector skip from redis
+                if self.selector_skip_k is not None:
+                    self.selector_skip_k = float(self.redis.get("selector_skip_k"))
+
             elif not self.streamer_mode and self.batch_mode:
 
                 rollout_data = encode_buffers(rollouts,
@@ -470,4 +476,8 @@ class RedisRolloutWorker:
                             "Had to limit rollouts. Learner may have have crashed, or is overloaded")
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
+
+                    # get new selector_skip from redis
+                    if self.selector_skip_k is not None:
+                        self.selector_skip_k = float(self.redis.get("selector_skip_k"))
 

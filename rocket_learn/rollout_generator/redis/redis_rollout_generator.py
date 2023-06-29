@@ -421,7 +421,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
 
         # do selector schedule based on n_updates here
         if self.selector_skip_schedule is not None:
-            self.selector_skip_k =
+            self.selector_skip_k = self.selector_skip_schedule(n_updates)
 
         if n_updates % self.model_freq == 0:
             print("Adding model to pool...")
