@@ -45,7 +45,9 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             gamemodes=("1v1", "2v2", "3v3"),
             pretrained_agents: PretrainedAgents = None,
             stat_trackers: Optional[List[StatTracker]] = None,
+            action_grouping_tracker=None,
     ):
+        self.action_grouping_tracker = action_grouping_tracker
         self.lastsave_ts = None
         self.name = name
         self.tot_bytes = 0
@@ -176,6 +178,8 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
     def _reset_stats(self):
         for stat_tracker in self.stat_trackers:
             stat_tracker.reset()
+        if self.action_grouping_tracker is not None:
+            self.action_grouping_tracker.reset()
 
     def _update_stats(self, states, mask):
         if states is None:
@@ -187,6 +191,8 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         stats = {}
         for stat_tracker in self.stat_trackers:
             stats[stat_tracker.name] = stat_tracker.get_stat()
+        if self.action_grouping_tracker is not None:
+            stats[self.action_grouping_tracker.name] = self.action_grouping_tracker.get_stat()
         return stats
 
     def generate_rollouts(self) -> Iterator[ExperienceBuffer]:
@@ -208,6 +214,9 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 if len(relevant_buffers) > 0:
                     self._update_stats(
                         states, [b in relevant_buffers for b in buffers])
+                    if self.action_grouping_tracker is not None:
+                        self.action_grouping_tracker.update(states, [b in relevant_buffers for b in buffers],
+                                                            [b.actions for b in relevant_buffers])
                 yield from relevant_buffers
 
     def _plot_ratings(self):
