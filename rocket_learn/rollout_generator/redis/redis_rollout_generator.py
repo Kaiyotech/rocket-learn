@@ -430,7 +430,10 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
 
         # do selector schedule based on n_updates here
         if self.selector_skip_schedule is not None:
+            from generate_episode import do_selector_action
             self.selector_skip_k = self.selector_skip_schedule(n_updates)
+            new_seconds = test_selector_skip(10_000, self.selector_skip_k, lambda: do_selector_action)
+            self.logger.log({"Selector_skip_seconds": new_seconds}, commit=False)
 
         if n_updates % self.model_freq == 0:
             print("Adding model to pool...")
@@ -446,3 +449,18 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 self.redis.bgsave()
             except ResponseError:
                 print("redis bgsave failed, auto save already in progress")
+
+
+def test_selector_skip(x, selector_skip_k, do_selector_action):
+    tick = 0
+    count = 0
+    ticks = []
+    for i in range(x):
+        do_selector = do_selector_action(selector_skip_k, tick) if selector_skip_k is not None else True
+        if do_selector:
+            ticks.append(tick)
+        tick = 0 if do_selector else tick + 1
+        count += 1 if do_selector else 0
+    ticks = np.asarray(ticks)
+    return np.mean(ticks) * (4 / 120)
+
