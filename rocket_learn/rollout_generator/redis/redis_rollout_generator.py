@@ -56,8 +56,12 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         self.redis = redis
         self.selector_skip_k = selector_skip_k
         if self.selector_skip_k is not None:
-            self.redis.set("selector_skip_k", 0.0004)
             self.selector_skip_schedule = selector_skip_schedule
+            # do selector schedule based on n_updates here
+            n_updates = int(self.redis.get(N_UPDATES))
+            n_updates = 0 if n_updates is None else n_updates
+            self.selector_skip_k = self.selector_skip_schedule(n_updates)
+            self.redis.set("selector_skip_k", self.selector_skip_k)
         else:
             self.redis.delete("selector_skip_k")
         self.logger = logger
@@ -430,9 +434,8 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
 
         # do selector schedule based on n_updates here
         if self.selector_skip_schedule is not None:
-            from generate_episode import do_selector_action
             self.selector_skip_k = self.selector_skip_schedule(n_updates)
-            new_seconds = test_selector_skip(10_000, self.selector_skip_k, lambda: do_selector_action)
+            new_seconds = test_selector_skip(10_000, self.selector_skip_k)
             self.logger.log({"Selector_skip_seconds": new_seconds}, commit=False)
 
         if n_updates % self.model_freq == 0:
@@ -451,7 +454,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 print("redis bgsave failed, auto save already in progress")
 
 
-def test_selector_skip(x, selector_skip_k, do_selector_action):
+def test_selector_skip(x, selector_skip_k):
     tick = 0
     count = 0
     ticks = []
@@ -463,4 +466,11 @@ def test_selector_skip(x, selector_skip_k, do_selector_action):
         count += 1 if do_selector else 0
     ticks = np.asarray(ticks)
     return np.mean(ticks) * (4 / 120)
+
+def do_selector_action(selector_skip_k, tick) -> bool:
+    p = 1 / (1 + (selector_skip_k * tick))
+    if np.random.uniform() < p:
+        return False
+    else:
+        return True
 
