@@ -437,6 +437,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             self.selector_skip_k = self.selector_skip_schedule(n_updates)
             new_seconds = test_selector_skip(10_000, self.selector_skip_k)
             self.logger.log({"Selector_skip_seconds": new_seconds}, commit=False)
+            self.redis.set("selector_skip_k", self.selector_skip_k)
 
         if n_updates % self.model_freq == 0:
             print("Adding model to pool...")
