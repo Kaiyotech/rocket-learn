@@ -362,7 +362,7 @@ class RedisRolloutWorker:
                             else:
                                 raise ValueError("Unknown version type")
                         agents.append(selected_agent)
-                        selector_skips.append(selector_skip_agent)
+                        selector_skips.append(float(selector_skip_agent))
 
             self.set_team_size(blue, orange)
 
