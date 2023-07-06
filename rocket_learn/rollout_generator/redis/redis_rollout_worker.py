@@ -24,7 +24,7 @@ import rocket_learn.utils.generate_episode
 from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
 from rocket_learn.rollout_generator.redis.utils import _unserialize_model, MODEL_LATEST, WORKER_IDS, OPPONENT_MODELS, \
     VERSION_LATEST, _serialize, ROLLOUTS, encode_buffers, decode_buffers, get_rating, get_ratings, LATEST_RATING_ID, \
-    EXPERIENCE_PER_MODE
+    EXPERIENCE_PER_MODE, OPPONENT_MODEL_SELECTOR_SKIP
 from rocket_learn.utils.util import probability_NvsM
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
@@ -320,16 +320,20 @@ class RedisRolloutWorker:
 
                 versions = [v if v != -1 else latest_version for v in versions]
                 ratings = ["na"] * len(versions)
+                selector_skips = [None] * (blue + orange)
             else:
                 versions, ratings, evaluate, blue, orange = self.matchmaker.generate_matchup(self.redis,
                                                                                              blue + orange,
                                                                                              evaluate)
                 agents = []
+                selector_skips = []
                 for i, version in enumerate(versions):
                     if version == -1:
                         versions[i] = latest_version
                         agents.append(self.current_agent)
+                        selector_skips.append(self.selector_skip_k)
                     else:
+                        selector_skip_agent = None
                         # For instances of PretrainedDiscretePolicy, whose redis qualities keys end with -deterministic or -stochastic
                         short_name = "-".join(version.split("-")[:-1])
                         if short_name in self.pretrained_agents_keymap:
@@ -339,6 +343,11 @@ class RedisRolloutWorker:
                             selected_agent = self.pretrained_agents_keymap[version]
                         else:
                             selected_agent = self._get_past_model(short_name)
+                            if self.selector_skip_k is not None:
+                                selector_skip_agent = self.redis.hget(OPPONENT_MODEL_SELECTOR_SKIP, short_name)
+                                if selector_skip_agent is None:
+                                    selector_skip_agent = self.selector_skip_k
+
                             if self.force_old_deterministic and n_new != 0:
                                 versions[i] = versions[i].replace(
                                     'stochastic', 'deterministic')
@@ -353,6 +362,7 @@ class RedisRolloutWorker:
                             else:
                                 raise ValueError("Unknown version type")
                         agents.append(selected_agent)
+                        selector_skips.append(selector_skip_agent)
 
             self.set_team_size(blue, orange)
 
@@ -363,7 +373,7 @@ class RedisRolloutWorker:
                 result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents, versions, evaluate=True,
                                                                               scoreboard=self.scoreboard,
                                                                               progress=self.live_progress,
-                                                                              selector_skip_k=self.selector_skip_k,
+                                                                              selector_skip_k=selector_skips,
                                                                               force_selector_choice=self.force_selector_choice,
                                                                               eval_setter=self.eval_setter,
                                                                               unlock_selector_indices=self.unlock_selector_indices,
@@ -383,7 +393,7 @@ class RedisRolloutWorker:
                         self.env, agents, versions,
                         evaluate=False,
                         scoreboard=self.scoreboard,
-                        selector_skip_k=self.selector_skip_k,
+                        selector_skip_k=selector_skips,
                         force_selector_choice=self.force_selector_choice,
                         unlock_selector_indices=self.unlock_selector_indices,
                         unlock_indices_group=self.unlock_indices_group,

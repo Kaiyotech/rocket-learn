@@ -125,7 +125,7 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                     actions = policy.env_compatible(action_indices[i])
                     if do_selector[idx]:
                         last_actions[idx] = actions
-                    elif selector_skip_k is not None and unlock_indices_group is not None and \
+                    elif selector_skip_k[idx] is not None and unlock_indices_group is not None and \
                             actions[0] in unlock_indices_group and last_actions[idx][0] in unlock_indices_group:
                         last_actions[idx] = actions
                     else:
@@ -182,11 +182,12 @@ def generate_episode(env: Gym, policies, versions, eval_setter=DefaultState(), e
                 observations, rewards = [observations], [rewards]
 
             # need to check the force and stuff AFTER the parser has a look at the new action choice
+            # modifying so that there can be different skips for different models
             if selector_skip_k is not None:
                 for i in range(len(do_selector)):
-                    if not isinstance(policies[i], HardcodedAgent):
+                    if selector_skip_k[i] is not None:
                         do_selector[i] = do_selector_action(
-                            selector_skip_k, tick[i])
+                            selector_skip_k[i], tick[i])
                         if policies[i].deterministic or force_selector_choice[i]:
                             do_selector[i] = True
                             force_selector_choice[i] = False

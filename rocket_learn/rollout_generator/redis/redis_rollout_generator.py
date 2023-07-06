@@ -19,7 +19,8 @@ from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGenerator
 from rocket_learn.rollout_generator.redis.utils import decode_buffers, _unserialize, PRETRAINED_QUALITIES, QUALITIES, _serialize, ROLLOUTS, \
     VERSION_LATEST, OPPONENT_MODELS, CONTRIBUTORS, N_UPDATES, MODEL_LATEST, _serialize_model, get_rating, get_ratings, \
-    get_pretrained_rating, get_pretrained_ratings, add_pretrained_ratings, _ALL, LATEST_RATING_ID, EXPERIENCE_PER_MODE
+    get_pretrained_rating, get_pretrained_ratings, add_pretrained_ratings, _ALL, LATEST_RATING_ID, EXPERIENCE_PER_MODE,\
+    OPPONENT_MODEL_SELECTOR_SKIP
 from rocket_learn.utils.stat_trackers.stat_tracker import StatTracker
 
 
@@ -364,6 +365,10 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
 
                 self.redis.hset(QUALITIES.format(gamemode),
                                 f"{key}-{mode}", _serialize(tuple(quality)))
+
+        # set selector_skip_k for model if it exists
+        if self.selector_skip_k is not None:
+            self.redis.hset(OPPONENT_MODEL_SELECTOR_SKIP, key, self.selector_skip_k)
 
         # Inform that new opponent is ready
         self.redis.set(LATEST_RATING_ID, key)
