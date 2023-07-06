@@ -347,6 +347,8 @@ class RedisRolloutWorker:
                                 selector_skip_agent = self.redis.hget(OPPONENT_MODEL_SELECTOR_SKIP, short_name)
                                 if selector_skip_agent is None:
                                     selector_skip_agent = self.selector_skip_k
+                                else:
+                                    selector_skip_agent = float(selector_skip_agent)
 
                             if self.force_old_deterministic and n_new != 0:
                                 versions[i] = versions[i].replace(
@@ -362,7 +364,7 @@ class RedisRolloutWorker:
                             else:
                                 raise ValueError("Unknown version type")
                         agents.append(selected_agent)
-                        selector_skips.append(float(selector_skip_agent))
+                        selector_skips.append(selector_skip_agent)
 
             self.set_team_size(blue, orange)
 
