@@ -56,6 +56,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         self.tot_bytes = 0
         self.redis = redis
         self.selector_skip_k = selector_skip_k
+        self.selector_skip_schedule = None
         if self.selector_skip_k is not None:
             self.selector_skip_schedule = selector_skip_schedule
             # do selector schedule based on n_updates here
