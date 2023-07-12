@@ -308,7 +308,7 @@ class RedisRolloutWorker:
                 orange = 0
             else:
                 blue = orange = self.match.agents // 2
-
+            n_new = 0
             if self.human_agent:
                 n_new = blue + orange - 1
                 versions = ["human"]
@@ -332,6 +332,7 @@ class RedisRolloutWorker:
                         versions[i] = latest_version
                         agents.append(self.current_agent)
                         selector_skips.append(self.selector_skip_k)
+                        n_new += 1
                     else:
                         selector_skip_agent = None
                         # For instances of PretrainedDiscretePolicy, whose redis qualities keys end with -deterministic or -stochastic
