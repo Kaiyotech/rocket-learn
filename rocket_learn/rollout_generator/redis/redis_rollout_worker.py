@@ -371,6 +371,10 @@ class RedisRolloutWorker:
 
             table_str = self.make_table(versions, ratings, blue, orange)
 
+            # if all selector skips are None, no need to pass a list
+            if selector_skips.count(None) == len(selector_skips):
+                selector_skips = None
+
             if evaluate and not self.streamer_mode and self.human_agent is None:
                 print("EVALUATION GAME\n" + table_str)
                 result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents, versions, evaluate=True,
