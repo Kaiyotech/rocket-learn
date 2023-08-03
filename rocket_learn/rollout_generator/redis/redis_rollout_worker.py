@@ -82,6 +82,7 @@ class RedisRolloutWorker:
                  dodge_deadzone=0.5,
                  live_progress=True,
                  tick_skip=8,
+                 random_boost_states_on_reset=False,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.initial_choice_block_weight = initial_choice_block_weight
@@ -187,7 +188,7 @@ class RedisRolloutWorker:
             import rlgym_sim
             self.env = rlgym_sim.gym.Gym(match=self.match, copy_gamestate_every_step=True, visualize=visualize,
                                          dodge_deadzone=dodge_deadzone, tick_skip=tick_skip, gravity=1.0,
-                                         boost_consumption=1.0)
+                                         boost_consumption=1.0, random_boost_pad_on_reset=random_boost_states_on_reset)
         else:
             self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
                            use_injector=True, force_paging=force_paging, raise_on_crash=True, auto_minimize=auto_minimize,
