@@ -8,10 +8,12 @@ from uuid import uuid4
 import sqlite3 as sql
 
 import numpy as np
+import rlgym.make
+
 from redis import Redis
-from rlgym.envs import Match
-from rlgym.gamelaunch import LaunchPreference
-from rlgym.gym import Gym
+from rlgym_sim.envs import Match
+from rlgym_sim.gamelaunch import LaunchPreference
+from rlgym_sim.gym import Gym
 from tabulate import tabulate
 
 import rocket_learn.agent.policy
@@ -57,8 +59,11 @@ class RedisRolloutWorker:
                  step_size=100_000,
                  pipeline_limit_bytes=10_000_000,
                  simulator=False,
+                 rust_sim=False,
                  dodge_deadzone=0.5,
                  tick_skip=8,
+                 spawn_opponents=True,
+                 team_size=1,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
@@ -127,7 +132,8 @@ class RedisRolloutWorker:
             print("Streaming mode set. Running silent.")
 
         self.scoreboard = scoreboard
-        state_setter = DynamicGMSetter(match._state_setter)  # noqa Rangler made me do it
+        state_setter = DynamicGMSetter(
+            match._state_setter) if not rust_sim else None  # noqa Rangler made me do it
         self.set_team_size = state_setter.set_team_size
         match._state_setter = state_setter
         self.match = match
@@ -136,11 +142,21 @@ class RedisRolloutWorker:
             self.env = rlgym_sim.gym.Gym(match=self.match, copy_gamestate_every_step=True,
                                          dodge_deadzone=dodge_deadzone, tick_skip=tick_skip, gravity=1.0,
                                          boost_consumption=1.0)
+        elif rust_sim:
+            # need rust gym here
+            import rlgym_sim_rs_py
+            rlgym_sim_rs_py.make(tick_skip=tick_skip, spawn_opponents=spawn_opponents, team_size=team_size, gravity=1.0,
+                                 boost_consumption=1.0, copy_gamestate_every_step=True, dodge_deadzone=dodge_deadzone,
+                                 terminal_conditions=terminal_conditions, reward_fn=reward_fn, obs_builder=obs_builder,
+                                 action_parser=action_parser, state_setter=DynamicGMSetter(state_setter))
         else:
             self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
-                           use_injector=True, force_paging=force_paging, raise_on_crash=True, auto_minimize=auto_minimize,
+                           use_injector=True, force_paging=force_paging, raise_on_crash=True,
+                           auto_minimize=auto_minimize,
                            )
         self.total_steps_generated = 0
+        self.rust_sim = rust_sim
+        self.team_size = team_size
 
     def _get_opponent_ids(self, n_new, n_old, pretrained_choice):
         # Get qualities
@@ -234,7 +250,7 @@ class RedisRolloutWorker:
                 return [-1] * (n_new + n_old), [latest_rating] * (n_new + n_old)
             k = np.random.choice(len(matchups), p=qualities / s)
             return [-1 if i == -1 else keys[i] for i in matchups[k]], \
-                   [latest_rating if i == -1 else values[i] for i in matchups[k]]
+                [latest_rating if i == -1 else values[i] for i in matchups[k]]
 
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
@@ -351,10 +367,10 @@ class RedisRolloutWorker:
             if self.dynamic_gm:
                 blue, orange = self.select_gamemode(equal_likelihood=evaluate or self.streamer_mode)
             elif self.match._spawn_opponents is False:
-                blue = self.match.agents
+                blue = self.match.agents if not self.rust_sim else self.team_size
                 orange = 0
             else:
-                blue = orange = self.match.agents // 2
+                blue = orange = self.match.agents // 2 if not self.rust_sim else self.team_size
             self.set_team_size(blue, orange)
 
             if self.human_agent:
@@ -477,7 +493,6 @@ class RedisRolloutWorker:
                             "Had to limit rollouts. Learner may have have crashed, or is overloaded")
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
-
 
     def _generate_matchup(self, n_agents, latest_version, pretrained_choice, evaluate):
         if evaluate:

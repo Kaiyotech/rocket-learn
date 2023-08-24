@@ -23,7 +23,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
         progress = tqdm(unit=" steps")
     else:
         progress = None
-
+    # TODO allow evaluate with rust later by providing these values or bypassing
     if evaluate:  # Change setup temporarily to play a normal game (approximately)
         from rlgym_tools.extra_terminals.game_condition import GameCondition  # tools is an optional dependency
         terminals = env._match._terminal_conditions  # noqa
@@ -45,6 +45,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
     if scoreboard is not None:
         random_resets = scoreboard.random_resets
         scoreboard.random_resets = not evaluate
+    # TODO make rust binding
     observations, info = env.reset(return_info=True)
     result = 0
 
@@ -128,12 +129,14 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
 
             all_actions = np.vstack(all_actions)
             old_obs = observations
+            # TODO: implement for rust bindings
             observations, rewards, done, info = env.step(all_actions)
 
-            truncated = False
-            for terminal in env._match._terminal_conditions:  # noqa
-                if isinstance(terminal, TruncatedCondition):
-                    truncated |= terminal.is_truncated(info["state"])
+            # TODO: add truncated eventually?
+            # truncated = False
+            # for terminal in env._match._terminal_conditions:  # noqa
+            #     if isinstance(terminal, TruncatedCondition):
+            #         truncated |= terminal.is_truncated(info["state"])
 
             if len(policies) <= 1:
                 observations, rewards = [observations], [rewards]
@@ -152,8 +155,10 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
             # Might be different if only one agent?
             if not evaluate:  # Evaluation matches can be long, no reason to keep them in memory
                 for exp_buf, obs, act, rew, log_prob in zip(rollouts, old_obs, all_indices, rewards, all_log_probs):
-                    exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, info)
+                    # exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, info)
+                    exp_buf.add_step(obs, act, rew, done, log_prob, info)
 
+            # TODO skipping for now for rust to not hack on _match
             if progress is not None:
                 progress.update()
                 igt = progress.n * env._match._tick_skip / 120  # noqa
@@ -162,7 +167,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
                     prog_str += f", BLUE {b} - {o} ORANGE"
                 progress.set_postfix_str(prog_str)
 
-            if done or truncated:
+            if done: # or truncated:
                 result += info["result"]
                 if info["result"] > 0:
                     b += 1
