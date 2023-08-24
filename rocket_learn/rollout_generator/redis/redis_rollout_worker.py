@@ -52,7 +52,14 @@ class RedisRolloutWorker:
                  send_obs=True, scoreboard=None, pretrained_agents=None,
                  human_agent=None, force_paging=False, auto_minimize=True,
                  local_cache_name=None, gamemode_weights=None, full_team_evaluations=False,
-                 live_progress=True):
+                 live_progress=False,
+                 batch_mode=False,
+                 step_size=100_000,
+                 pipeline_limit_bytes=10_000_000,
+                 simulator=False,
+                 dodge_deadzone=0.5,
+                 tick_skip=8,
+                 ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
         self.name = name
@@ -94,6 +101,14 @@ class RedisRolloutWorker:
         self.uuid = str(uuid4())
         self.redis.rpush(WORKER_IDS, self.uuid)
 
+        self.batch_mode = batch_mode
+        self.step_size_limit = min(step_size / 20, 25_000)
+        if self.batch_mode:
+            self.red_pipe = self.redis.pipeline()
+            self.step_last_send = 0
+        self.pipeline_size = 0
+        self.pipeline_limit = pipeline_limit_bytes  # 10 MB is default
+
         # currently doesn't rebuild, if the old is there, reuse it.
         if self.local_cache_name:
             self.sql = sql.connect('redis-model-cache-' + local_cache_name + '.db')
@@ -116,8 +131,15 @@ class RedisRolloutWorker:
         self.set_team_size = state_setter.set_team_size
         match._state_setter = state_setter
         self.match = match
-        self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
-                       use_injector=True, force_paging=force_paging, raise_on_crash=True, auto_minimize=auto_minimize)
+        if simulator:
+            import rlgym_sim
+            self.env = rlgym_sim.gym.Gym(match=self.match, copy_gamestate_every_step=True,
+                                         dodge_deadzone=dodge_deadzone, tick_skip=tick_skip, gravity=1.0,
+                                         boost_consumption=1.0)
+        else:
+            self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
+                           use_injector=True, force_paging=force_paging, raise_on_crash=True, auto_minimize=auto_minimize,
+                           )
         self.total_steps_generated = 0
 
     def _get_opponent_ids(self, n_new, n_old, pretrained_choice):
@@ -405,7 +427,7 @@ class RedisRolloutWorker:
                     print(post_stats)
                     print()
 
-            if not self.streamer_mode:
+            if not self.streamer_mode and not self.batch_mode:
                 rollout_data = encode_buffers(rollouts,
                                               return_obs=self.send_obs,
                                               return_states=self.send_gamestates,
@@ -431,6 +453,31 @@ class RedisRolloutWorker:
                 # t = Thread(target=send)
                 # t.start()
                 # time.sleep(0.01)
+
+            elif not self.streamer_mode and self.batch_mode:
+
+                rollout_data = encode_buffers(rollouts,
+                                              return_obs=self.send_obs,
+                                              return_states=self.send_gamestates,
+                                              return_rewards=True)
+                rollout_bytes = _serialize((rollout_data, versions, self.uuid, self.name, result,
+                                            self.send_obs, self.send_gamestates, True))
+
+                self.pipeline_size += len(rollout_bytes)
+
+                self.red_pipe.rpush(ROLLOUTS, rollout_bytes)
+
+                #  def send():
+                if (self.total_steps_generated - self.step_last_send) > self.step_size_limit or \
+                        len(self.red_pipe) > 100 or self.pipeline_size > self.pipeline_limit:
+                    n_items = self.red_pipe.execute()
+                    self.pipeline_size = 0
+                    if n_items[-1] >= 1000:
+                        print(
+                            "Had to limit rollouts. Learner may have have crashed, or is overloaded")
+                        self.redis.ltrim(ROLLOUTS, -100, -1)
+                    self.step_last_send = self.total_steps_generated
+
 
     def _generate_matchup(self, n_agents, latest_version, pretrained_choice, evaluate):
         if evaluate:
