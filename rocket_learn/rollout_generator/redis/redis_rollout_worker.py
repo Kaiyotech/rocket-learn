@@ -8,11 +8,11 @@ from uuid import uuid4
 import sqlite3 as sql
 
 import numpy as np
-import rlgym.make
+import rlgym_sim.make
 
 from redis import Redis
 from rlgym_sim.envs import Match
-from rlgym_sim.gamelaunch import LaunchPreference
+# from rlgym_sim.gamelaunch import LaunchPreference
 from rlgym_sim.gym import Gym
 from tabulate import tabulate
 
@@ -98,6 +98,7 @@ class RedisRolloutWorker:
             assert np.isclose(sum(self.gamemode_weights.values()), 1), "gamemode_weights must sum to 1"
         self.gamemode_exp_per_episode_ema = {}
         self.local_cache_name = local_cache_name
+        self.spawn_opponents = spawn_opponents
 
         self.full_team_evaluations = full_team_evaluations
 
@@ -134,8 +135,10 @@ class RedisRolloutWorker:
         self.scoreboard = scoreboard
         state_setter = DynamicGMSetter(
             match._state_setter) if not rust_sim else None  # noqa Rangler made me do it
-        self.set_team_size = state_setter.set_team_size
-        match._state_setter = state_setter
+        if not rust_sim:
+            self.set_team_size = state_setter.set_team_size
+        if dynamic_gm:
+            match._state_setter = state_setter
         self.match = match
         if simulator:
             import rlgym_sim
@@ -145,11 +148,19 @@ class RedisRolloutWorker:
         elif rust_sim:
             # need rust gym here
             import rlgym_sim_rs_py
-            rlgym_sim_rs_py.make(tick_skip=tick_skip, spawn_opponents=spawn_opponents, team_size=team_size, gravity=1.0,
-                                 boost_consumption=1.0, copy_gamestate_every_step=True, dodge_deadzone=dodge_deadzone,
-                                 terminal_conditions=terminal_conditions, reward_fn=reward_fn, obs_builder=obs_builder,
-                                 action_parser=action_parser, state_setter=DynamicGMSetter(state_setter))
+
+            self.env = rlgym_sim_rs_py.GymWrapper(tick_skip=tick_skip,
+                                                  team_size=team_size,
+                                                  gravity=1.0,
+                                                  self_play=spawn_opponents,
+                                                  boost_consumption=1.0,
+                                                  copy_gamestate_every_step=True,
+                                                  dodge_deadzone=dodge_deadzone,
+                                                  seed=123)
+            # self.set_team_size = self.env.set_team_size
+            print("made it here in python")
         else:
+            import rlgym.gym
             self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
                            use_injector=True, force_paging=force_paging, raise_on_crash=True,
                            auto_minimize=auto_minimize,
@@ -366,12 +377,13 @@ class RedisRolloutWorker:
 
             if self.dynamic_gm:
                 blue, orange = self.select_gamemode(equal_likelihood=evaluate or self.streamer_mode)
-            elif self.match._spawn_opponents is False:
+            elif self.spawn_opponents is False:
                 blue = self.match.agents if not self.rust_sim else self.team_size
                 orange = 0
             else:
                 blue = orange = self.match.agents // 2 if not self.rust_sim else self.team_size
-            self.set_team_size(blue, orange)
+            if self.dynamic_gm:
+                self.set_team_size(blue, orange)
 
             if self.human_agent:
                 n_new = blue + orange - 1
@@ -411,7 +423,8 @@ class RedisRolloutWorker:
                     rollouts, result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents,
                                                                                             evaluate=False,
                                                                                             scoreboard=self.scoreboard,
-                                                                                            progress=self.live_progress)
+                                                                                            progress=self.live_progress,
+                                                                                            rust_sim=self.rust_sim)
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
                         print(" ** Rollout Generation Error: Restarting Generation ** ")
@@ -421,8 +434,11 @@ class RedisRolloutWorker:
                     self.env.attempt_recovery()
                     continue
 
-                state = rollouts[0].infos[-2]["state"]
-                goal_speed = np.linalg.norm(state.ball.linear_velocity) * 0.036  # kph
+                if not self.rust_sim:
+                    state = rollouts[0].infos[-2]["state"]
+                    goal_speed = np.linalg.norm(state.ball.linear_velocity) * 0.036  # kph
+                else:
+                    goal_speed = -1
                 str_result = ('+' if result > 0 else "") + str(result)
                 episode_exp = len(rollouts[0].observations) * len(rollouts)
                 self.total_steps_generated += episode_exp

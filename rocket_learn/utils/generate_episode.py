@@ -2,9 +2,9 @@ from typing import List
 
 import numpy as np
 import torch
-from rlgym.gym import Gym
-from rlgym.utils.reward_functions.common_rewards import ConstantReward
-from rlgym.utils.state_setters import DefaultState
+from rlgym_sim.gym import Gym
+from rlgym_sim.utils.reward_functions.common_rewards import ConstantReward
+from rlgym_sim.utils.state_setters import DefaultState
 from tqdm import tqdm
 
 from rocket_learn.agent.policy import Policy
@@ -14,7 +14,7 @@ from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 from rocket_learn.utils.truncated_condition import TruncatedCondition
 
 
-def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progress=False) -> (
+def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progress=False, rust_sim=False) -> (
         List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
@@ -46,17 +46,26 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
         random_resets = scoreboard.random_resets
         scoreboard.random_resets = not evaluate
     # TODO make rust binding
-    observations, info = env.reset(return_info=True)
+    if not rust_sim:
+        observations, info = env.reset(return_info=True)
+    else:
+        observations = env.reset()
     result = 0
 
-    last_state = info['state']  # game_state for obs_building of other agents
+    last_state = info['state'] if not rust_sim else None  # game_state for obs_building of other agents
 
     latest_policy_indices = [0 if isinstance(p, HardcodedAgent) else 1 for p in policies]
     # rollouts for all latest_policies
-    rollouts = [
-        ExperienceBuffer(infos=[info])
-        for _ in range(sum(latest_policy_indices))
-    ]
+    if not rust_sim:
+        rollouts = [
+            ExperienceBuffer(infos=[info])
+            for _ in range(sum(latest_policy_indices))
+        ]
+    else:
+        rollouts = [
+            ExperienceBuffer()
+            for _ in range(sum(latest_policy_indices))
+        ]
 
     b = o = 0
     with torch.no_grad():
@@ -68,14 +77,18 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
             # if observation isn't a list, make it one so we don't iterate over the observation directly
             if not isinstance(observations, list):
                 observations = [observations]
-
-            if not isinstance(policies[0], HardcodedAgent) and all(policy == policies[0] for policy in policies):
+            # this doesn't seem to be working, due to different locations of policy?
+            # if not isinstance(policies[0], HardcodedAgent) and all(policy == policies[0] for policy in policies):
+            if True:
                 policy = policies[0]
                 if isinstance(observations[0], tuple):
                     obs = tuple(np.concatenate([obs[i] for obs in observations], axis=0)
                                 for i in range(len(observations[0])))
                 else:
-                    obs = np.concatenate(observations, axis=0)
+                    # obs = np.concatenate(observations, axis=0)
+                    # expand just for testing, do in obs builder normally?
+                    obs = np.array(observations)
+                    # obs = observations
                 dist = policy.get_action_distribution(obs)
                 action_indices = policy.sample_action(dist)
                 log_probs = policy.log_prob(dist, action_indices)
@@ -156,8 +169,10 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
             if not evaluate:  # Evaluation matches can be long, no reason to keep them in memory
                 for exp_buf, obs, act, rew, log_prob in zip(rollouts, old_obs, all_indices, rewards, all_log_probs):
                     # exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, info)
-                    exp_buf.add_step(obs, act, rew, done, log_prob, info)
-
+                    if not rust_sim:
+                        exp_buf.add_step(obs, act, rew, done, log_prob, info)
+                    else:
+                        exp_buf.add_step(obs, act, rew, done, log_prob, [])
             # TODO skipping for now for rust to not hack on _match
             if progress is not None:
                 progress.update()
@@ -167,7 +182,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
                     prog_str += f", BLUE {b} - {o} ORANGE"
                 progress.set_postfix_str(prog_str)
 
-            if done: # or truncated:
+            if done:  # or truncated:
                 result += info["result"]
                 if info["result"] > 0:
                     b += 1
@@ -179,9 +194,12 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
                 elif game_condition.done:  # noqa
                     break
                 else:
-                    observations, info = env.reset(return_info=True)
+                    if not rust_sim:
+                        observations, info = env.reset(return_info=True)
+                    else:
+                        observations = env.reset()
 
-            last_state = info['state']
+            last_state = info['state'] if not rust_sim else None
 
     if scoreboard is not None:
         scoreboard.random_resets = random_resets  # noqa Checked above
