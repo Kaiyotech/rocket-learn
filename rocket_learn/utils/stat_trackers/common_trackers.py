@@ -5,10 +5,11 @@ from rocket_learn.utils.stat_trackers.stat_tracker import StatTracker
 
 
 class Speed(StatTracker):
-    def __init__(self):
+    def __init__(self, normalize=False):
         super().__init__("average_speed")
         self.count = 0
         self.total_speed = 0.0
+        self.normalize = normalize
 
     def reset(self):
         self.count = 0
@@ -21,6 +22,8 @@ class Speed(StatTracker):
         zs = players[:, StateConstants.CAR_LINEAR_VEL_Z]
 
         speeds = np.sqrt(xs ** 2 + ys ** 2 + zs ** 2)
+        if self.normalize:
+            speeds = speeds / 27.78  # convert to km/h
         self.total_speed += np.sum(speeds)
         self.count += speeds.size
 
@@ -253,10 +256,11 @@ class AirTouchHeight(StatTracker):
 
 
 class BallSpeed(StatTracker):
-    def __init__(self):
+    def __init__(self, normalize=False):
         super().__init__("average_ball_speed")
         self.count = 0
         self.total_speed = 0.0
+        self.normalize = normalize
 
     def reset(self):
         self.count = 0
@@ -268,6 +272,8 @@ class BallSpeed(StatTracker):
         ys = ball_speeds[:, 1]
         zs = ball_speeds[:, 2]
         speeds = np.sqrt(xs ** 2 + ys ** 2 + zs ** 2)
+        if self.normalize:
+            speeds = speeds / 27.78  # convert to km/h
         self.total_speed += np.sum(speeds)
         self.count += speeds.size
 
@@ -352,7 +358,8 @@ class CarOnGround(StatTracker):
         self.total_ground = 0.0
 
     def update(self, gamestates: np.ndarray, mask: np.ndarray):
-        on_ground = gamestates[:, StateConstants.ON_GROUND]
+        players = gamestates[:, StateConstants.PLAYERS]
+        on_ground = players[:, StateConstants.ON_GROUND]
 
         self.total_ground += np.sum(on_ground)
         self.count += on_ground.size
