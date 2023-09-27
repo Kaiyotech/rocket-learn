@@ -62,7 +62,8 @@ class PPO:
             logger=None,
             device="cuda",
             zero_grads_with_none=False,
-            kl_models_weights: List[Union[Tuple[Policy, float], Tuple[Policy, float, float]]] = None
+            kl_models_weights: List[Union[Tuple[Policy, float], Tuple[Policy, float, float]]] = None,
+            disable_gradient_logging = False,
     ):
         self.rollout_generator = rollout_generator
 
@@ -97,7 +98,8 @@ class PPO:
 
         self.total_steps = 0
         self.logger = logger
-        self.logger.watch((self.agent.actor, self.agent.critic))
+        if not disable_gradient_logging:
+            self.logger.watch((self.agent.actor, self.agent.critic))
         self.timer = time.time_ns() // 1_000_000
         self.jit_tracer = None
 
@@ -187,9 +189,23 @@ class PPO:
 
             self.rollout_generator.update_parameters(self.agent.actor)
 
+            # calculate years for graph
+            if self.tick_skip_starts is not None:
+                new_iteration = iteration
+                years = 0
+                for i in reversed(self.tick_skip_starts):
+                    length = new_iteration - i[1]
+                    years += length * i[2] / (3600 * 24 * 365 * (120 / i[0]))
+                    new_iteration = i[1]
+                self.logger.log({"ppo/years": years}, step=iteration, commit=False)
+
             self.total_steps += self.n_steps  # size
             t1 = time.time()
             self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps})
+            print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
+
+
+
 
             # pr.disable()
             # s = io.StringIO()
@@ -293,11 +309,17 @@ class PPO:
         ep_rewards = np.array(ep_rewards)
         ep_steps = np.array(ep_steps)
 
+        total_steps = sum(ep_steps)
         self.logger.log({
             "ppo/ep_reward_mean": ep_rewards.mean(),
             "ppo/ep_reward_std": ep_rewards.std(),
             "ppo/ep_len_mean": ep_steps.mean(),
+            "ppo/mean_reward_per_step": ep_rewards.mean() / ep_steps.mean(),
+            "ppo/abs_ep_reward_mean": np.abs(ep_rewards).sum() / ep_steps.mean(),
+
         }, step=iteration, commit=False)
+
+        print(f"std, mean rewards: {ep_rewards.std()}\t{ep_rewards.mean()}")
 
         if isinstance(obs_tensors[0], tuple):
             transposed = zip(*obs_tensors)
@@ -365,8 +387,9 @@ class PPO:
                 except ValueError as e:
                     print("ValueError in evaluate_actions", e)
                     continue
-
-                ratio = torch.exp(log_prob - old_log_prob)
+                diff_log_prob = log_prob - old_log_prob
+                #  stabilize the ratio for small log prob
+                ratio = torch.where(diff_log_prob.abs() < 0.00005, 1 + diff_log_prob, torch.exp(diff_log_prob))
 
                 values_pred = self.agent.critic(obs)
 
