@@ -1,6 +1,6 @@
 from typing import Iterator
 
-import rlgym
+import rlgym_sim
 from rocket_learn.agent.policy import Policy
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGenerator
@@ -9,7 +9,7 @@ from rocket_learn.utils.generate_episode import generate_episode
 
 class SimpleRolloutGenerator(BaseRolloutGenerator):
     def __init__(self, policy: Policy, **make_args):
-        self.env = rlgym.make(**make_args)
+        self.env = rlgym_sim.make(**make_args)
         self.policy = policy
         self.n_agents = self.env._match.agents
 

@@ -14,7 +14,8 @@ from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 from rocket_learn.utils.truncated_condition import TruncatedCondition
 
 
-def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progress=False, rust_sim=False) -> (
+def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
+                     progress=False, rust_sim=False) -> (
         List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
@@ -25,7 +26,7 @@ def generate_episode(env: Gym, policies, evaluate=False, scoreboard=None, progre
         progress = None
     # TODO allow evaluate with rust later by providing these values or bypassing
     if evaluate:  # Change setup temporarily to play a normal game (approximately)
-        from rlgym_tools.extra_terminals.game_condition import GameCondition  # tools is an optional dependency
+        from game_condition import GameCondition  # tools is an optional dependency
         terminals = env._match._terminal_conditions  # noqa
         reward = env._match._reward_fn  # noqa
         game_condition = GameCondition(tick_skip=env._match._tick_skip,  # noqa

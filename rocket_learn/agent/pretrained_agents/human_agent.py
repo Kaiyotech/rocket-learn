@@ -1,7 +1,7 @@
 import pygame
 import keyboard
 
-from rlgym.utils.gamestates import GameState
+from rlgym_sim.utils.gamestates import GameState
 
 from rocket_learn.agent.pretrained_policy import HardcodedAgent
 

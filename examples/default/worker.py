@@ -3,13 +3,13 @@ import numpy
 
 from redis import Redis
 
-from rlgym.envs import Match
-from rlgym.utils.gamestates import PlayerData, GameState
-from rlgym.utils.terminal_conditions.common_conditions import GoalScoredCondition, TimeoutCondition
-from rlgym.utils.reward_functions.default_reward import DefaultReward
-from rlgym.utils.state_setters.default_state import DefaultState
-from rlgym.utils.obs_builders.advanced_obs import AdvancedObs
-from rlgym.utils.action_parsers.discrete_act import DiscreteAction
+from rlgym_sim.envs import Match
+from rlgym_sim.utils.gamestates import PlayerData, GameState
+from rlgym_sim.utils.terminal_conditions.common_conditions import GoalScoredCondition, TimeoutCondition
+from rlgym_sim.utils.reward_functions.default_reward import DefaultReward
+from rlgym_sim.utils.state_setters.default_state import DefaultState
+from rlgym_sim.utils.obs_builders.advanced_obs import AdvancedObs
+from rlgym_sim.utils.action_parsers.discrete_act import DiscreteAction
 
 from rocket_learn.rollout_generator.redis.redis_rollout_worker import RedisRolloutWorker
 

@@ -3,8 +3,8 @@ from typing import Any
 import numpy as np
 import torch
 import torch.distributions
-from rlgym.utils.gamestates import GameState, PlayerData
-from rlgym.utils.obs_builders import AdvancedObs
+from rlgym_sim.utils.gamestates import GameState, PlayerData
+from rlgym_sim.utils.obs_builders import AdvancedObs
 from torch import nn
 
 

@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from rocket_learn.agent.pretrained_policy import HardcodedAgent
 from pretrained_agents.nexto.nexto_v2_obs import Nexto_V2_ObsBuilder
 
-from rlgym.utils.gamestates import GameState
+from rlgym_sim.utils.gamestates import GameState
 
 import copy
 

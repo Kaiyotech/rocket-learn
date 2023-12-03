@@ -17,7 +17,7 @@ from rlgym_sim.envs import Match
 from rlgym_sim.gym import Gym
 from tabulate import tabulate
 
-from rlgym.utils.state_setters import DefaultState
+from rlgym_sim.utils.state_setters import DefaultState
 
 import rocket_learn.agent.policy
 from rocket_learn.agent.discrete_policy import DiscretePolicy
@@ -26,7 +26,7 @@ import rocket_learn.utils.generate_episode
 from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
 from rocket_learn.rollout_generator.redis.utils import _unserialize_model, MODEL_LATEST, WORKER_IDS, OPPONENT_MODELS, \
     VERSION_LATEST, _serialize, ROLLOUTS, encode_buffers, decode_buffers, get_rating, get_ratings, LATEST_RATING_ID, \
-    EXPERIENCE_PER_MODE, OPPONENT_MODEL_SELECTOR_SKIP
+    EXPERIENCE_PER_MODE
 from rocket_learn.utils.util import probability_NvsM
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
@@ -76,6 +76,8 @@ class RedisRolloutWorker:
                  tick_skip=8,
                  random_boost_states_on_reset=False,
                  rust_sim=False,
+                 team_size=3,
+                 spawn_opponents=True,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
@@ -183,13 +185,9 @@ class RedisRolloutWorker:
                                                   copy_gamestate_every_step=True,
                                                   dodge_deadzone=dodge_deadzone,
                                                   seed=123)
+            self.rust_sim = True
             # self.set_team_size = self.env.set_team_size
-            print("made it here in python")
-        else:
-            self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
-                           use_injector=True, force_paging=force_paging, raise_on_crash=True, auto_minimize=auto_minimize,
-                           epic_rl_exe_path=epic_rl_exe_path
-                           )
+
         self.total_steps_generated = 0
         self.live_progress = live_progress
 
@@ -355,15 +353,16 @@ class RedisRolloutWorker:
             table_str = self.make_table(versions, ratings, blue, orange)
 
             # if all selector skips are None, no need to pass a list
-            if selector_skips.count(None) == len(selector_skips):
-                selector_skips = None
+            # if selector_skips.count(None) == len(selector_skips):
+            #     selector_skips = None
 
             if evaluate and not self.streamer_mode and self.human_agent is None:
                 print("EVALUATION GAME\n" + table_str)
-                result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents, versions, evaluate=True,
+                result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents,
+                                                                              evaluate=True,
                                                                               scoreboard=self.scoreboard,
                                                                               progress=self.live_progress,
-                                                                              eval_setter=self.eval_setter,
+                                                                              #eval_setter=self.eval_setter,
                                                                               )
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
@@ -374,7 +373,7 @@ class RedisRolloutWorker:
 
                 try:
                     rollouts, result = rocket_learn.utils.generate_episode.generate_episode(
-                        self.env, agents, versions,
+                        self.env, agents,
                         evaluate=False,
                         scoreboard=self.scoreboard,
                     )

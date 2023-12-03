@@ -2,9 +2,9 @@ from typing import Any
 
 import numpy as np
 
-from rlgym.utils import ObsBuilder
-from rlgym.utils.common_values import BOOST_LOCATIONS, BLUE_TEAM, ORANGE_TEAM
-from rlgym.utils.gamestates import GameState, PlayerData
+from rlgym_sim.utils import ObsBuilder
+from rlgym_sim.utils.common_values import BOOST_LOCATIONS, BLUE_TEAM, ORANGE_TEAM
+from rlgym_sim.utils.gamestates import GameState, PlayerData
 
 
 class NectoV1Obs(ObsBuilder):

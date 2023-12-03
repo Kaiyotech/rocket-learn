@@ -5,7 +5,7 @@ from typing import List, Optional, Union, Dict
 
 import numpy as np
 from redis import Redis
-from rlgym.utils.gamestates import GameState
+from rlgym_sim.utils.gamestates import GameState
 from trueskill import Rating, SIGMA
 
 from rocket_learn.agent.types import PretrainedAgents
