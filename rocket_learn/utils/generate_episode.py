@@ -50,7 +50,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
     if not rust_sim:
         observations, info = env.reset(return_info=True)
     else:
-        observations = env.reset()
+        observations = env.reset(infinite_boost_odds=0.1)
     result = 0
 
     last_state = info['state'] if not rust_sim else None  # game_state for obs_building of other agents
@@ -90,11 +90,17 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     # expand just for testing, do in obs builder normally?
                     obs = np.array(observations)
                     # obs = observations
+                mirror = obs[-1]
+                obs = obs[:-1]
                 dist = policy.get_action_distribution(obs)
                 action_indices = policy.sample_action(dist)
                 log_probs = policy.log_prob(dist, action_indices)
                 actions = policy.env_compatible(action_indices)
-
+                # for i, action in enumerate(actions):
+                #     if mirrored[i]:
+                #         action[1] *= -1
+                #         action[3] *= -1
+                #         action[4] *= -1
                 all_indices.extend(list(action_indices.numpy()))
                 all_actions.extend(list(actions))
                 all_log_probs.extend(list(log_probs.numpy()))
@@ -144,7 +150,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             all_actions = np.vstack(all_actions)
             old_obs = observations
             # TODO: implement for rust bindings
-            observations, rewards, done, info = env.step(all_actions)
+            # put the mirror back so I can handle it in the parser in Rust (hopefully)
+            all_actions = np.column_stack((all_actions, mirror))
+            observations, rewards, done = env.step(all_actions)
 
             # TODO: add truncated eventually?
             # truncated = False
@@ -184,11 +192,12 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 progress.set_postfix_str(prog_str)
 
             if done:  # or truncated:
-                result += info["result"]
-                if info["result"] > 0:
-                    b += 1
-                elif info["result"] < 0:
-                    o += 1
+                if not rust_sim:
+                    result += info["result"]
+                    if info["result"] > 0:
+                        b += 1
+                    elif info["result"] < 0:
+                        o += 1
 
                 if not evaluate:
                     break

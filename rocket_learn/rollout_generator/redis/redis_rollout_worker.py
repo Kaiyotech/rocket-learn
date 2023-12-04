@@ -83,6 +83,7 @@ class RedisRolloutWorker:
         self.eval_setter = eval_setter
         self.redis = redis
         self.name = name
+        self.rust_sim = rust_sim
 
         self.matchmaker = matchmaker
 
@@ -168,7 +169,7 @@ class RedisRolloutWorker:
         self.set_team_size = state_setter.set_team_size
         match._state_setter = state_setter
         self.match = match
-        if simulator:
+        if simulator  and not rust_sim:
             import rlgym_sim
             self.env = rlgym_sim.gym.Gym(match=self.match, copy_gamestate_every_step=True,
                                          dodge_deadzone=dodge_deadzone, tick_skip=tick_skip, gravity=1.0,
@@ -181,11 +182,11 @@ class RedisRolloutWorker:
                                                   team_size=team_size,
                                                   gravity=1.0,
                                                   self_play=spawn_opponents,
-                                                  boost_consumption=1.0,
-                                                  copy_gamestate_every_step=True,
-                                                  dodge_deadzone=dodge_deadzone,
-                                                  seed=123)
-            self.rust_sim = True
+                                                  boost_consumption_default=1.0,
+                                                  # copy_gamestate_every_step=True,
+                                                  )
+                                                  # dodge_deadzone=dodge_deadzone,
+                                                  # seed=123)
             # self.set_team_size = self.env.set_team_size
 
         self.total_steps_generated = 0
@@ -362,6 +363,7 @@ class RedisRolloutWorker:
                                                                               evaluate=True,
                                                                               scoreboard=self.scoreboard,
                                                                               progress=self.live_progress,
+                                                                              rust_sim=self.rust_sim,
                                                                               #eval_setter=self.eval_setter,
                                                                               )
                 rollouts = []
@@ -376,6 +378,8 @@ class RedisRolloutWorker:
                         self.env, agents,
                         evaluate=False,
                         scoreboard=self.scoreboard,
+                        rust_sim=self.rust_sim,
+                        progress=False,
                     )
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
