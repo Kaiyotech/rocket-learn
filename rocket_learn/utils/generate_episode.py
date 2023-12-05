@@ -29,17 +29,18 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         from game_condition import GameCondition  # tools is an optional dependency
         terminals = env._match._terminal_conditions  # noqa
         reward = env._match._reward_fn  # noqa
-        game_condition = GameCondition(tick_skip=env._match._tick_skip,  # noqa
-                                       seconds_per_goal_forfeit=10 * env._match._team_size,
+        game_condition = GameCondition(seconds_per_goal_forfeit=10 * 3,  # noqa
                                        max_overtime_seconds=300,
-                                       max_no_touch_seconds=60)
+                                       max_no_touch_seconds=30)  # noqa
         env._match._terminal_conditions = [game_condition]  # noqa
         if isinstance(env._match._state_setter, DynamicGMSetter):  # noqa
             state_setter = env._match._state_setter.setter  # noqa
-            env._match._state_setter.setter = DefaultState()  # noqa
+            env._match._state_setter.setter = eval_setter  # noqa
+            env.update_settings(boost_consumption=1)  # remove infinite boost
         else:
             state_setter = env._match._state_setter  # noqa
-            env._match._state_setter = DefaultState()  # noqa
+            env._match._state_setter = eval_setter  # noqa
+            env.update_settings(boost_consumption=1)  # remove infinite boost
 
         env._match._reward_fn = ConstantReward()  # noqa Save some cpu cycles
 
