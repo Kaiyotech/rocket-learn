@@ -190,14 +190,14 @@ class PPO:
             self.rollout_generator.update_parameters(self.agent.actor)
 
             # calculate years for graph
-            if self.tick_skip_starts is not None:
-                new_iteration = iteration
-                years = 0
-                for i in reversed(self.tick_skip_starts):
-                    length = new_iteration - i[1]
-                    years += length * i[2] / (3600 * 24 * 365 * (120 / i[0]))
-                    new_iteration = i[1]
-                self.logger.log({"ppo/years": years}, step=iteration, commit=False)
+            # if self.tick_skip_starts is not None:
+            #     new_iteration = iteration
+            #     years = 0
+            #     for i in reversed(self.tick_skip_starts):
+            #         length = new_iteration - i[1]
+            #         years += length * i[2] / (3600 * 24 * 365 * (120 / i[0]))
+            #         new_iteration = i[1]
+            #     self.logger.log({"ppo/years": years}, step=iteration, commit=False)
 
             self.total_steps += self.n_steps  # size
             t1 = time.time()
