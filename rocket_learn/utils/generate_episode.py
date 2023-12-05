@@ -51,6 +51,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         observations, info = env.reset(return_info=True)
     else:
         observations = env.reset(infinite_boost_odds=0.1)
+
     result = 0
 
     last_state = info['state'] if not rust_sim else None  # game_state for obs_building of other agents
@@ -74,7 +75,11 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             all_indices = []
             all_actions = []
             all_log_probs = []
-
+            mirror = []
+            # need to remove the mirror from the end here instead of later so it doesn't make it to ppo
+            for i, observation in enumerate(observations):
+                mirror.append(observation[2])
+                observations[i] = observations[i][:-1]
             # if observation isn't a list, make it one so we don't iterate over the observation directly
             if not isinstance(observations, list):
                 observations = [observations]
@@ -90,8 +95,8 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     # expand just for testing, do in obs builder normally?
                     obs = np.array(observations)
                     # obs = observations
-                mirror = obs[-1]
-                obs = obs[:-1]
+                # mirror = obs[-1]
+                # obs = obs[:-1]
                 dist = policy.get_action_distribution(obs)
                 action_indices = policy.sample_action(dist)
                 log_probs = policy.log_prob(dist, action_indices)
