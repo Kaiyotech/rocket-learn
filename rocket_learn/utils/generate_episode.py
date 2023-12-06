@@ -85,16 +85,16 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             if not isinstance(observations, list):
                 observations = [observations]
             # this doesn't seem to be working, due to different locations of policy?
-            # if not isinstance(policies[0], HardcodedAgent) and all(policy == policies[0] for policy in policies):
-            if True:
+            if not isinstance(policies[0], HardcodedAgent) and all(policy == policies[0] for policy in policies):
+            # if True:
                 policy = policies[0]
                 if isinstance(observations[0], tuple):
                     obs = tuple(np.concatenate([obs[i] for obs in observations], axis=0)
                                 for i in range(len(observations[0])))
                 else:
-                    # obs = np.concatenate(observations, axis=0)
+                    obs = np.concatenate(observations, axis=0)
                     # expand just for testing, do in obs builder normally?
-                    obs = np.array(observations)
+                    # obs = np.array(observations)
                     # obs = observations
                 # mirror = obs[-1]
                 # obs = obs[:-1]
@@ -102,11 +102,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 action_indices = policy.sample_action(dist)
                 log_probs = policy.log_prob(dist, action_indices)
                 actions = policy.env_compatible(action_indices)
-                # for i, action in enumerate(actions):
-                #     if mirrored[i]:
-                #         action[1] *= -1
-                #         action[3] *= -1
-                #         action[4] *= -1
+
                 all_indices.extend(list(action_indices.numpy()))
                 all_actions.extend(list(actions))
                 all_log_probs.extend(list(log_probs.numpy()))
