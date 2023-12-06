@@ -159,6 +159,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             # put the mirror back so I can handle it in the parser in Rust (hopefully)
             all_actions = np.column_stack((all_actions, mirror))
             observations, rewards, done = env.step(all_actions)
+            print(f"rewards in python are {rewards}")
 
             # TODO: add truncated eventually?
             # truncated = False
@@ -188,6 +189,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                         exp_buf.add_step(obs, act, rew, done, log_prob, info)
                     else:
                         exp_buf.add_step(obs, act, rew, done, log_prob, [])
+                        print(f"actions going to buffer are {act} and rewards are {rew}")
             # TODO skipping for now for rust to not hack on _match
             if progress is not None:
                 progress.update()
