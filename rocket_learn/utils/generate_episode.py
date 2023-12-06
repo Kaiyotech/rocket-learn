@@ -77,11 +77,11 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             all_indices = []
             all_actions = []
             all_log_probs = []
-            # mirror = []
-            # # need to remove the mirror from the end here instead of later so it doesn't make it to ppo
-            # for i, observation in enumerate(observations):
-            #     mirror.append(observation[2])
-            #     observations[i] = observations[i][:-1]
+            mirror = []
+            # need to remove the mirror from the end here instead of later so it doesn't make it to ppo
+            for i, observation in enumerate(observations):
+                mirror.append(observation[2])
+                observations[i] = observations[i][:-1]
             # if observation isn't a list, make it one so we don't iterate over the observation directly
             if not isinstance(observations, list):
                 observations = [observations]
@@ -154,7 +154,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             old_obs = observations
             # TODO: implement for rust bindings
             # put the mirror back so I can handle it in the parser in Rust (hopefully)
-            # all_actions = np.column_stack((all_actions, mirror))
+            all_actions = np.column_stack((all_actions, mirror))
             observations, rewards, done, _ = env.step(all_actions)
             # print(f"rewards in python are {rewards}")
 
