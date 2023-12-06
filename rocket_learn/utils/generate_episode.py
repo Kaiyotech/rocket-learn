@@ -93,9 +93,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     obs = tuple(np.concatenate([obs[i] for obs in observations], axis=0)
                                 for i in range(len(observations[0])))
                 else:
-                    obs = np.concatenate(observations, axis=0)
+                    # obs = np.concatenate(observations, axis=0)
                     # expand just for testing, do in obs builder normally?
-                    # obs = np.array(observations)
+                    obs = np.array(observations)
                     # obs = observations
                 # mirror = obs[-1]
                 # obs = obs[:-1]
@@ -155,7 +155,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             # TODO: implement for rust bindings
             # put the mirror back so I can handle it in the parser in Rust (hopefully)
             # all_actions = np.column_stack((all_actions, mirror))
-            observations, rewards, done = env.step(all_actions)
+            observations, rewards, done, _ = env.step(all_actions)
             # print(f"rewards in python are {rewards}")
 
             # TODO: add truncated eventually?
