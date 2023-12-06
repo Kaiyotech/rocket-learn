@@ -188,7 +188,8 @@ class RedisRolloutWorker:
                                                   # dodge_deadzone=dodge_deadzone,
                                                   # seed=123)
             # self.set_team_size = self.env.set_team_size
-
+        # TODO Remove this
+        self.rust_sim = True
         self.total_steps_generated = 0
         self.live_progress = live_progress
 
