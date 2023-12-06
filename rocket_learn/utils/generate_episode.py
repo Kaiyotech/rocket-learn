@@ -155,7 +155,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             # TODO: implement for rust bindings
             # put the mirror back so I can handle it in the parser in Rust (hopefully)
             all_actions = np.column_stack((all_actions, mirror))
-            observations, rewards, done, _ = env.step(all_actions)
+            observations, rewards, done= env.step(all_actions)
             # print(f"rewards in python are {rewards}")
 
             # TODO: add truncated eventually?
