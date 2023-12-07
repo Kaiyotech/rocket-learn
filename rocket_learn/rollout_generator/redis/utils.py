@@ -1,6 +1,7 @@
 # Constants for consistent key lookup
 import pickle
 import zlib
+import lz4.frame
 from typing import List, Optional, Union, Dict
 
 import numpy as np
@@ -40,12 +41,13 @@ m.patch()
 
 # Helper methods for easier changing of byte conversion
 def _serialize(obj):
-    return zlib.compress(msgpack.packb(obj))
-
+    # return zlib.compress(msgpack.packb(obj), level=1)
+    return lz4.frame.compress(msgpack.packb(obj), compression_level=0)
 
 def _unserialize(obj):
     try:
-        return msgpack.unpackb(zlib.decompress(obj))
+        # return msgpack.unpackb(zlib.decompress(obj))
+        return msgpack.unpackb(lz4.frame.decompress(obj))
     except (msgpack.UnpackException, zlib.error):
         return pickle.loads(obj)
 
