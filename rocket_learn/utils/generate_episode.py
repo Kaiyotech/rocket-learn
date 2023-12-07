@@ -52,6 +52,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         observations, info = env.reset(return_info=True)
     else:
         observations = env.reset(infinite_boost_odds=0.1)
+        info = {'result': 0.0}
         # observations = env.reset()
 
     result = 0
@@ -79,15 +80,16 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             all_log_probs = []
             mirror = []
             # need to remove the mirror from the end here instead of later so it doesn't make it to ppo
-            for i, observation in enumerate(observations):
-                mirror.append(observation[2])
-                observations[i] = observations[i][:-1]
+            if len(observations[0]) > 2:
+                for i, observation in enumerate(observations):
+                    mirror.append(observation[2])
+                    observations[i] = observations[i][:-1]
             # if observation isn't a list, make it one so we don't iterate over the observation directly
             if not isinstance(observations, list):
                 observations = [observations]
             # this doesn't seem to be working, due to different locations of policy?
             if not isinstance(policies[0], HardcodedAgent) and all(policy == policies[0] for policy in policies):
-            # if True:
+                # if True:
                 policy = policies[0]
                 if isinstance(observations[0], tuple):
                     obs = tuple(np.concatenate([obs[i] for obs in observations], axis=0)
@@ -152,10 +154,11 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
 
             all_actions = np.vstack(all_actions)
             old_obs = observations
-            # TODO: implement for rust bindings
+
             # put the mirror back so I can handle it in the parser in Rust (hopefully)
-            all_actions = np.column_stack((all_actions, mirror))
-            observations, rewards, done= env.step(all_actions)
+            if len(mirror) > 0:
+                all_actions = np.column_stack((all_actions, mirror))
+            observations, rewards, done, info = env.step(all_actions)
             # print(f"rewards in python are {rewards}")
 
             # TODO: add truncated eventually?
@@ -182,11 +185,11 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             if not evaluate:  # Evaluation matches can be long, no reason to keep them in memory
                 for exp_buf, obs, act, rew, log_prob in zip(rollouts, old_obs, all_indices, rewards, all_log_probs):
                     # exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, info)
-                    if not rust_sim:
-                        exp_buf.add_step(obs, act, rew, done, log_prob, info)
-                    else:
-                        exp_buf.add_step(obs, act, rew, done, log_prob, [])
-                        # print(f"actions going to buffer are {act} and rewards are {rew}")
+                    # if not rust_sim:
+                    exp_buf.add_step(obs, act, rew, done, log_prob, info)
+                    # else:
+                    #     exp_buf.add_step(obs, act, rew, done, log_prob, [])
+                    # print(f"actions going to buffer are {act} and rewards are {rew}")
             # TODO skipping for now for rust to not hack on _match
             if progress is not None:
                 progress.update()
@@ -197,22 +200,22 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 progress.set_postfix_str(prog_str)
 
             if done:  # or truncated:
-                if not rust_sim:
-                    result += info["result"]
-                    if info["result"] > 0:
-                        b += 1
-                    elif info["result"] < 0:
-                        o += 1
+                # if not rust_sim:
+                result += info["result"]
+                if info["result"] > 0:
+                    b += 1
+                elif info["result"] < 0:
+                    o += 1
 
                 if not evaluate:
                     break
                 elif game_condition.done:  # noqa
                     break
                 else:
-                    if not rust_sim:
-                        observations, info = env.reset(return_info=True)
-                    else:
-                        observations = env.reset()
+                    # if not rust_sim:
+                    observations, info = env.reset(return_info=True)
+                    # else:
+                    #     observations = env.reset()
 
             last_state = info['state'] if not rust_sim else None
 
