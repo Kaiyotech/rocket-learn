@@ -6,6 +6,7 @@ import torch.distributions
 from rlgym_sim.utils.gamestates import GameState, PlayerData
 from rlgym_sim.utils.obs_builders import AdvancedObs
 from torch import nn
+from rlgym_sim.utils import math
 
 
 def softmax(x):
@@ -55,3 +56,69 @@ def probability_NvsM(team1_ratings, team2_ratings, env=None):
     x = (team1_mu - team2_mu) / np.sqrt(team1_sigma + team2_sigma)
     probability_win_team1 = env.cdf(x)
     return probability_win_team1
+
+
+def make_python_state(state_vals) -> GameState:
+    player_len = 39
+    boost_pad_length = 34
+    state_vals = np.asarray(state_vals)
+    state = GameState()
+    state.game_type = state_vals[0]
+    state.blue_score = state_vals[1]
+    state.orange_score = state_vals[2]
+    start = 3
+    state.boost_pads = np.asarray(state_vals[start:start + boost_pad_length])
+    start += boost_pad_length
+    state.inverted_boost_pads = np.asarray(state_vals[start:start + boost_pad_length])
+    start += boost_pad_length
+    state.ball.position = np.asarray((state_vals[start], state_vals[start+1], state_vals[start+2]))
+    state.ball.linear_velocity = np.asarray((state_vals[start+3], state_vals[start+4], state_vals[start+5]))
+    state.ball.angular_velocity = np.asarray((state_vals[start+6], state_vals[start+7], state_vals[start+8]))
+    start += 9
+    state.inverted_ball.position = np.asarray((state_vals[start], state_vals[start + 1], state_vals[start + 2]))
+    state.inverted_ball.linear_velocity = np.asarray((state_vals[start + 3], state_vals[start + 4], state_vals[start + 5]))
+    state.inverted_ball.angular_velocity = np.asarray((state_vals[start + 6], state_vals[start + 7], state_vals[start + 8]))
+    start += 9
+    num_players = (len(state_vals) - start) // player_len
+    for i in range(num_players):
+        player = PlayerData()
+        player.car_id = state_vals[start]
+        player.team_num = state_vals[start+1]
+        start += 2
+        player.car_data.position = np.asarray((state_vals[start], state_vals[start+1], state_vals[start+2]))
+        player.car_data.quaternion = np.asarray((state_vals[start+3], state_vals[start+4],
+                                                 state_vals[start+5], state_vals[start+6]))
+        player.car_data.linear_velocity = np.asarray((state_vals[start + 7], state_vals[start + 8], state_vals[start + 9]))
+        player.car_data.angular_velocity = np.asarray(
+            (state_vals[start + 10], state_vals[start + 11], state_vals[start + 12]))
+        start += 13
+        player.inverted_car_data.position = np.asarray((state_vals[start], state_vals[start+1], state_vals[start+2]))
+        player.inverted_car_data.quaternion = np.asarray((state_vals[start+3], state_vals[start+4],
+                                                 state_vals[start+5], state_vals[start+6]))
+        player.inverted_car_data.linear_velocity = np.asarray((state_vals[start + 7], state_vals[start + 8], state_vals[start + 9]))
+        player.inverted_car_data.angular_velocity = np.asarray(
+            (state_vals[start + 10], state_vals[start + 11], state_vals[start + 12]))
+        start += 13
+        player.car_data.euler_angles = math.quat_to_euler(player.car_data.quaternion)
+        player.car_data.rotation_mtx = math.quat_to_rot_mtx(player.car_data.quaternion)
+        player.inverted_car_data.euler_angles = math.quat_to_euler(player.inverted_car_data.quaternion)
+        player.inverted_car_data.rotation_mtx = math.quat_to_rot_mtx(player.inverted_car_data.quaternion)
+        player._has_computed_euler_angles = True
+        player._has_computed_rot_mtx = True
+        player.match_goals = state_vals[start]
+        player.match_saves = state_vals[start+1]
+        player.match_shots = state_vals[start+2]
+        player.match_demolishes = state_vals[start+3]
+        player.boost_pickups = state_vals[start+4]
+        player.is_demoed = state_vals[start+5]
+        player.on_ground = state_vals[start+6]
+        player.ball_touched = state_vals[start+7]
+        player.has_jump = state_vals[start+8]
+        player.has_flip = state_vals[start+9]
+        player.boost_amount = state_vals[start+10]
+        start += 11
+        state.players.append(player)
+
+    state.players.sort(key=lambda p: p.car_id)
+
+    return state

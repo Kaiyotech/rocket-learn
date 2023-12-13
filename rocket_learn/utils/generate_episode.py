@@ -11,11 +11,14 @@ from rocket_learn.agent.policy import Policy
 from rocket_learn.agent.pretrained_policy import HardcodedAgent
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
+from rocket_learn.utils.util import make_python_state
 from rocket_learn.utils.truncated_condition import TruncatedCondition
 
 
 def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
-                     progress=False, rust_sim=False) -> (
+                     progress=False, rust_sim=False, infinite_boost_odds=0,
+                     send_gamestates=False,
+                     ) -> (
         List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
@@ -51,7 +54,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
     if not rust_sim:
         observations, info = env.reset(return_info=True)
     else:
-        observations = env.reset(infinite_boost_odds=0.1)
+        observations = env.reset(infinite_boost_odds=infinite_boost_odds)
         info = {'result': 0.0}
         # observations = env.reset()
 
@@ -158,7 +161,15 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             # put the mirror back so I can handle it in the parser in Rust (hopefully)
             if len(mirror) > 0:
                 all_actions = np.column_stack((all_actions, mirror))
-            observations, rewards, done, info = env.step(all_actions)
+            if not rust_sim:
+                observations, rewards, done, info = env.step(all_actions)
+            else:
+                observations, rewards, done, info, state = env.step(all_actions)
+                # state is a f32 vector of the state
+                if send_gamestates:
+                    info['state'] = make_python_state(state)
+                else:
+                    info['state'] = None
             # print(f"rewards in python are {rewards}")
 
             # TODO: add truncated eventually?
@@ -217,7 +228,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     # else:
                     #     observations = env.reset()
 
-            last_state = info['state'] if not rust_sim else None
+            last_state = info['state'] if send_gamestates else None
 
     if scoreboard is not None:
         scoreboard.random_resets = random_resets  # noqa Checked above

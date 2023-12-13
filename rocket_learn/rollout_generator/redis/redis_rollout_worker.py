@@ -183,6 +183,7 @@ class RedisRolloutWorker:
                                                   gravity=1.0,
                                                   self_play=spawn_opponents,
                                                   boost_consumption_default=1.0,
+                                                  send_gamestate=send_gamestates,
                                                   # copy_gamestate_every_step=True,
                                                   )
                                                   # dodge_deadzone=dodge_deadzone,
@@ -381,6 +382,7 @@ class RedisRolloutWorker:
                         scoreboard=self.scoreboard,
                         rust_sim=self.rust_sim,
                         progress=False,
+                        send_gamestates=self.send_gamestates,
                     )
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
