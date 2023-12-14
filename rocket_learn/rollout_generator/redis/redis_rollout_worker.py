@@ -176,9 +176,9 @@ class RedisRolloutWorker:
                                          boost_consumption=1.0)
         elif rust_sim:
             # need rust gym here
-            import rlgym_sim_rs_py
+            import spectrum
 
-            self.env = rlgym_sim_rs_py.GymWrapper(tick_skip=tick_skip,
+            self.env = spectrum.GymWrapper(tick_skip=tick_skip,
                                                   team_size=team_size,
                                                   gravity=1.0,
                                                   self_play=spawn_opponents,
