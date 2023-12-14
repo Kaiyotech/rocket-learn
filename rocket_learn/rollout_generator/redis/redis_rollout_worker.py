@@ -68,16 +68,14 @@ class RedisRolloutWorker:
                  pipeline_limit_bytes=10_000_000,
                  gamemode_weight_ema_alpha=0.02,
                  eval_setter=DefaultState(),
-                 epic_rl_exe_path=None,
                  simulator=False,
-                 visualize=False,
                  dodge_deadzone=0.5,
                  live_progress=True,
                  tick_skip=8,
-                 random_boost_states_on_reset=False,
                  rust_sim=False,
                  team_size=3,
                  spawn_opponents=True,
+                 infinite_boost_odds=0,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
@@ -86,6 +84,8 @@ class RedisRolloutWorker:
         self.rust_sim = rust_sim
 
         self.matchmaker = matchmaker
+
+        self.infinite_boost_odds = infinite_boost_odds
 
         assert send_gamestates or send_obs, "Must have at least one of obs or states"
 
@@ -318,7 +318,8 @@ class RedisRolloutWorker:
             else:
                 versions, ratings, evaluate, blue, orange = self.matchmaker.generate_matchup(self.redis,
                                                                                              blue + orange,
-                                                                                             evaluate)
+                                                                                             evaluate,
+                                                                                             )
                 agents = []
                 for i, version in enumerate(versions):
                     if version == -1:
@@ -366,6 +367,7 @@ class RedisRolloutWorker:
                                                                               scoreboard=self.scoreboard,
                                                                               progress=self.live_progress,
                                                                               rust_sim=self.rust_sim,
+                                                                              infinite_boost_odds=0
                                                                               #eval_setter=self.eval_setter,
                                                                               )
                 rollouts = []
@@ -383,6 +385,7 @@ class RedisRolloutWorker:
                         rust_sim=self.rust_sim,
                         progress=False,
                         send_gamestates=self.send_gamestates,
+                        infinite_boost_odds=self.infinite_boost_odds
                     )
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
