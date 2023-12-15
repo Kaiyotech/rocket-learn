@@ -285,6 +285,7 @@ class PPO:
                 else:
                     x = obs_tensor.to(self.device)
                 values = self.agent.critic(x).detach().cpu().numpy().flatten()  # No batching?
+                torch.cuda.empty_cache()  # adding to try to fix memory issues
 
             actions = np.stack(buffer.actions)
             log_probs = np.stack(buffer.log_probs)
