@@ -400,7 +400,8 @@ class PPO:
 
                 # clipped surrogate loss
                 policy_loss_1 = adv * ratio
-                policy_loss_2 = adv * th.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
+                low_side = 1 - self.clip_range
+                policy_loss_2 = adv * th.clamp(ratio, low_side, 1 / low_side)
                 policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
 
                 # **If we want value clipping, add it here**
