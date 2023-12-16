@@ -54,7 +54,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
     if not rust_sim:
         observations, info = env.reset(return_info=True)
     else:
-        observations = env.reset(infinite_boost_odds=infinite_boost_odds)
+        observations = env.reset(len(policies) // 2, infinite_boost_odds=infinite_boost_odds)
         info = {'result': 0.0}
         # observations = env.reset()
 
