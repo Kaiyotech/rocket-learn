@@ -99,10 +99,10 @@ def make_python_state(state_vals) -> GameState:
         player.inverted_car_data.angular_velocity = np.asarray(
             (state_vals[start + 10], state_vals[start + 11], state_vals[start + 12]))
         start += 13
-        player.car_data.euler_angles = math.quat_to_euler(player.car_data.quaternion)
-        player.car_data.rotation_mtx = math.quat_to_rot_mtx(player.car_data.quaternion)
-        player.inverted_car_data.euler_angles = math.quat_to_euler(player.inverted_car_data.quaternion)
-        player.inverted_car_data.rotation_mtx = math.quat_to_rot_mtx(player.inverted_car_data.quaternion)
+        player.car_data._euler_angles = math.quat_to_euler(player.car_data.quaternion)
+        player.car_data._rotation_mtx = math.quat_to_rot_mtx(player.car_data.quaternion)
+        player.inverted_car_data._euler_angles = math.quat_to_euler(player.inverted_car_data.quaternion)
+        player.inverted_car_data._rotation_mtx = math.quat_to_rot_mtx(player.inverted_car_data.quaternion)
         player._has_computed_euler_angles = True
         player._has_computed_rot_mtx = True
         player.match_goals = state_vals[start]
@@ -111,10 +111,10 @@ def make_python_state(state_vals) -> GameState:
         player.match_demolishes = state_vals[start+3]
         player.boost_pickups = state_vals[start+4]
         player.is_demoed = state_vals[start+5]
-        player.on_ground = state_vals[start+6]
-        player.ball_touched = state_vals[start+7]
-        player.has_jump = state_vals[start+8]
-        player.has_flip = state_vals[start+9]
+        player.on_ground = state_vals[start+6] > 0.
+        player.ball_touched = state_vals[start+7] > 0.
+        player.has_jump = state_vals[start+8] > 0.
+        player.has_flip = state_vals[start+9] > 0.
         player.boost_amount = state_vals[start+10]
         start += 11
         state.players.append(player)
