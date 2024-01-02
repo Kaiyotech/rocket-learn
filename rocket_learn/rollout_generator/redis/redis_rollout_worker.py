@@ -76,6 +76,7 @@ class RedisRolloutWorker:
                  team_size=3,
                  spawn_opponents=True,
                  infinite_boost_odds=0,
+                 reward_logging=False,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
@@ -184,6 +185,7 @@ class RedisRolloutWorker:
                                                   self_play=spawn_opponents,
                                                   boost_consumption_default=1.0,
                                                   send_gamestate=send_gamestates,
+                                                  reward_logging=reward_logging,
                                                   # copy_gamestate_every_step=True,
                                                   )
                                                   # dodge_deadzone=dodge_deadzone,
