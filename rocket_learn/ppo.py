@@ -1,5 +1,6 @@
 import cProfile
 import io
+import json
 import os
 import pstats
 import time
@@ -63,10 +64,11 @@ class PPO:
             device="cuda",
             zero_grads_with_none=False,
             kl_models_weights: List[Union[Tuple[Policy, float], Tuple[Policy, float, float]]] = None,
-            disable_gradient_logging = False,
+            disable_gradient_logging=False,
+            reward_logging_dir=None,
     ):
         self.rollout_generator = rollout_generator
-
+        self.reward_logging_dir = reward_logging_dir
         # TODO let users choose their own agent
         # TODO move agent to rollout generator
         self.agent = agent.to(device)
@@ -199,13 +201,14 @@ class PPO:
             #         new_iteration = i[1]
             #     self.logger.log({"ppo/years": years}, step=iteration, commit=False)
 
+            # add reward log outputs here with commit false
+            if self.reward_logging_dir is not None:
+                self.log_rewards(iteration - 1)  # have to remove 1 since it's already incremented
+
             self.total_steps += self.n_steps  # size
             t1 = time.time()
             self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps})
             print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
-
-
-
 
             # pr.disable()
             # s = io.StringIO()
@@ -216,6 +219,54 @@ class PPO:
     def set_logger(self, logger):
         self.logger = logger
 
+    def log_rewards(self, iteration):
+        # need to read all of the json in the directory, handle them, delete them
+        #
+        files = os.listdir(self.reward_logging_dir)
+        num_files = 0
+        num_steps = 0
+        total_dict = {}
+        avg_dict = {}
+        for file in files:
+            num_files += 1
+            file = os.path.join(self.reward_logging_dir, file)
+            fh = open(file)
+            data = json.load(fh)
+            num_steps += data.get("step_num")
+            current_steps = data.get("step_num")
+            # just sum all of the sums and then divide by num_files later to get average episode total
+            for key, value in data.get("RewardSum").items():
+                if key in total_dict:
+                    total_dict[key] = [x + y for x, y in zip(total_dict[key], value)]
+                else:
+                    total_dict[key] = value
+            # to get average we need to weight the averages by steps
+            w_1 = current_steps / num_steps  # num_steps already includes current_steps
+            w_2 = (num_steps - current_steps) / num_steps
+            for key, value in data.get("RewardAvg").items():
+                if key in avg_dict:
+                    avg_dict[key] = [x * w_2 + y * w_1 for x, y in zip(avg_dict[key], value)]
+                else:
+                    avg_dict[key] = value
+            fh.close()
+            os.unlink(file)
+
+        # divide the sum by number of episodes/aka files
+        for key, value in total_dict.items():
+            total_dict[key] = [x / num_files for x in total_dict[key]]
+
+        # total_dict is the episode average, avg_dict is the per-step avg
+        log_dict = {}
+        log_dict.update(
+            {f"rewards_ep_ind/{key}_{i}": val for key, values in total_dict.items() for i, val in enumerate(values)})
+        log_dict.update(
+            {f"rewards_step_ind/{key}_{i}": val for key, values in avg_dict.items() for i, val in enumerate(values)})
+        for key, value in total_dict.items():
+            log_dict.update({f"rewards_ep/{key}": sum(value)})
+        for key, value in avg_dict.items():
+            log_dict.update({f"rewards_step/{key}": sum(value)})
+        # sorted_dict = dict(sorted(log_dict.items()))  #  wandb doesn't respect this anyway
+        self.logger.log(log_dict, step=iteration, commit=False)
     def evaluate_actions(self, observations, actions):
         """
         Calculate Log Probability and Entropy of actions
