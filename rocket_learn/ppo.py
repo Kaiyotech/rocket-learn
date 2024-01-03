@@ -112,6 +112,13 @@ class PPO:
                     kl_models_weights[i] = kl_models_weights[i] + (None,)
         self.kl_models_weights = kl_models_weights
 
+        # clean up previous files
+        if self.reward_logging_dir is not None:
+            files = os.listdir(self.reward_logging_dir)
+            for file in files:
+                file = os.path.join(self.reward_logging_dir, file)
+                os.unlink(file)
+
     def update_reward_norm(self, rewards: np.ndarray) -> np.ndarray:
         batch_mean = np.mean(rewards)
         batch_var = np.var(rewards)
