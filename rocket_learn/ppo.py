@@ -235,6 +235,10 @@ class PPO:
         num_steps = 0
         total_dict = {}
         avg_dict = {}
+        total_dict_blue = {}
+        total_dict_orange = {}
+        avg_dict_blue = {}
+        avg_dict_orange = {}
         for file in files:
             num_files += 1
             try:
@@ -243,6 +247,8 @@ class PPO:
                 data = json.load(fh)
                 num_steps += data.get("step_num")
                 current_steps = data.get("step_num")
+                num_players = data.get("num_players")
+                mid = num_players // 2
                 # just sum all of the sums and then divide by num_files later to get average episode total
                 for key, value in data.get("RewardSum").items():
                     if key in total_dict:
@@ -257,6 +263,28 @@ class PPO:
                         avg_dict[key] = [x * w_2 + y * w_1 for x, y in zip(avg_dict[key], value)]
                     else:
                         avg_dict[key] = value
+
+                # split into blue and orange
+                for key, value in total_dict.items():
+                    if key in total_dict_blue:
+                        total_dict_blue[key] += sum(value[:mid]) / mid
+                    else:
+                        total_dict_blue[key] = sum(value[:mid]) / mid
+                for key, value in total_dict.items():
+                    if key in total_dict_orange:
+                        total_dict_orange[key] += sum(value[mid:]) / mid
+                    else:
+                        total_dict_orange[key] = sum(value[mid:]) / mid
+                for key, value in avg_dict.items():
+                    if key in avg_dict_blue:
+                        avg_dict_blue[key] = avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1
+                    else:
+                        avg_dict_blue[key] = sum(value[:mid]) / mid
+                for key, value in avg_dict.items():
+                    if key in avg_dict_orange:
+                        avg_dict_orange[key] = avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1
+                    else:
+                        avg_dict_orange[key] = sum(value[mid:]) / mid
                 fh.close()
                 os.unlink(file)
             except JSONDecodeError:
@@ -265,17 +293,30 @@ class PPO:
         # divide the sum by number of episodes/aka files
         for key, value in total_dict.items():
             total_dict[key] = [x / num_files for x in total_dict[key]]
+        for key, value in total_dict_blue.items():
+            total_dict_blue[key] = value / num_files
+        for key, value in total_dict_orange.items():
+            total_dict_orange[key] = value / num_files
 
         # total_dict is the episode average, avg_dict is the per-step avg
         log_dict = {}
-        log_dict.update(
-            {f"rewards_ep_ind/{key}_{i}": val for key, values in total_dict.items() for i, val in enumerate(values)})
-        log_dict.update(
-            {f"rewards_step_ind/{key}_{i}": val for key, values in avg_dict.items() for i, val in enumerate(values)})
+        # remove this per player version, it's messy and loud
+        # log_dict.update(
+        #     {f"rewards_ep_ind/{key}_{i}": val for key, values in total_dict.items() for i, val in enumerate(values)})
+        # log_dict.update(
+        #     {f"rewards_step_ind/{key}_{i}": val for key, values in avg_dict.items() for i, val in enumerate(values)})
         for key, value in total_dict.items():
-            log_dict.update({f"rewards_ep/{key}": sum(value)})
+            log_dict.update({f"rewards_ep/{key}": sum(value) / len(value)})
         for key, value in avg_dict.items():
-            log_dict.update({f"rewards_step/{key}": sum(value)})
+            log_dict.update({f"rewards_step/{key}": sum(value) / len(value)})
+        for key, value in total_dict_blue.items():
+            log_dict.update({f"rewards_ep_team/{key}_blue": value})
+        for key, value in total_dict_orange.items():
+            log_dict.update({f"rewards_ep_team/{key}_orange": value})
+        for key, value in avg_dict_blue.items():
+            log_dict.update({f"rewards_step_team/{key}_blue": value})
+        for key, value in avg_dict_orange.items():
+            log_dict.update({f"rewards_step_team/{key}_orange": value})
         # sorted_dict = dict(sorted(log_dict.items()))  #  wandb doesn't respect this anyway
         self.logger.log(log_dict, step=iteration, commit=False)
     def evaluate_actions(self, observations, actions):
