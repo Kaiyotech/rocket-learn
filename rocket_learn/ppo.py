@@ -5,6 +5,7 @@ import os
 import pstats
 import time
 import sys
+from json import JSONDecodeError
 from typing import Iterator, List, Tuple, Union
 
 import numba
@@ -236,27 +237,30 @@ class PPO:
         avg_dict = {}
         for file in files:
             num_files += 1
-            file = os.path.join(self.reward_logging_dir, file)
-            fh = open(file)
-            data = json.load(fh)
-            num_steps += data.get("step_num")
-            current_steps = data.get("step_num")
-            # just sum all of the sums and then divide by num_files later to get average episode total
-            for key, value in data.get("RewardSum").items():
-                if key in total_dict:
-                    total_dict[key] = [x + y for x, y in zip(total_dict[key], value)]
-                else:
-                    total_dict[key] = value
-            # to get average we need to weight the averages by steps
-            w_1 = current_steps / num_steps  # num_steps already includes current_steps
-            w_2 = (num_steps - current_steps) / num_steps
-            for key, value in data.get("RewardAvg").items():
-                if key in avg_dict:
-                    avg_dict[key] = [x * w_2 + y * w_1 for x, y in zip(avg_dict[key], value)]
-                else:
-                    avg_dict[key] = value
-            fh.close()
-            os.unlink(file)
+            try:
+                file = os.path.join(self.reward_logging_dir, file)
+                fh = open(file)
+                data = json.load(fh)
+                num_steps += data.get("step_num")
+                current_steps = data.get("step_num")
+                # just sum all of the sums and then divide by num_files later to get average episode total
+                for key, value in data.get("RewardSum").items():
+                    if key in total_dict:
+                        total_dict[key] = [x + y for x, y in zip(total_dict[key], value)]
+                    else:
+                        total_dict[key] = value
+                # to get average we need to weight the averages by steps
+                w_1 = current_steps / num_steps  # num_steps already includes current_steps
+                w_2 = (num_steps - current_steps) / num_steps
+                for key, value in data.get("RewardAvg").items():
+                    if key in avg_dict:
+                        avg_dict[key] = [x * w_2 + y * w_1 for x, y in zip(avg_dict[key], value)]
+                    else:
+                        avg_dict[key] = value
+                fh.close()
+                os.unlink(file)
+            except JSONDecodeError:
+                print(f"Error with json while working on file {file}")
 
         # divide the sum by number of episodes/aka files
         for key, value in total_dict.items():
