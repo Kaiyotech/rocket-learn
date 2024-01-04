@@ -77,6 +77,7 @@ class RedisRolloutWorker:
                  spawn_opponents=True,
                  infinite_boost_odds=0,
                  reward_logging=False,
+                 visualize=False,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.eval_setter = eval_setter
@@ -170,7 +171,7 @@ class RedisRolloutWorker:
         self.set_team_size = state_setter.set_team_size
         match._state_setter = state_setter
         self.match = match
-        if simulator  and not rust_sim:
+        if simulator and not rust_sim:
             import rlgym_sim
             self.env = rlgym_sim.gym.Gym(match=self.match, copy_gamestate_every_step=True,
                                          dodge_deadzone=dodge_deadzone, tick_skip=tick_skip, gravity=1.0,
@@ -180,16 +181,17 @@ class RedisRolloutWorker:
             import spectrum
 
             self.env = spectrum.GymWrapper(tick_skip=tick_skip,
-                                                  team_size=team_size,
-                                                  gravity=1.0,
-                                                  self_play=spawn_opponents,
-                                                  boost_consumption_default=1.0,
-                                                  send_gamestate=send_gamestates,
-                                                  reward_logging=reward_logging,
-                                                  # copy_gamestate_every_step=True,
-                                                  )
-                                                  # dodge_deadzone=dodge_deadzone,
-                                                  # seed=123)
+                                           team_size=team_size,
+                                           gravity=1.0,
+                                           self_play=spawn_opponents,
+                                           boost_consumption_default=1.0,
+                                           send_gamestate=send_gamestates,
+                                           reward_logging=reward_logging,
+                                           visualize=visualize,
+                                           # copy_gamestate_every_step=True,
+                                           )
+            # dodge_deadzone=dodge_deadzone,
+            # seed=123)
             # self.set_team_size = self.env.set_team_size
         # # TODO Remove this
         # self.rust_sim = True
@@ -370,7 +372,7 @@ class RedisRolloutWorker:
                                                                               progress=self.live_progress,
                                                                               rust_sim=self.rust_sim,
                                                                               infinite_boost_odds=0
-                                                                              #eval_setter=self.eval_setter,
+                                                                              # eval_setter=self.eval_setter,
                                                                               )
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
@@ -409,7 +411,8 @@ class RedisRolloutWorker:
                 if self.dynamic_gm:
                     old_exp = self.mean_exp_grant[f"{blue}v{orange}"]
                     self.mean_exp_grant[f"{blue}v{orange}"] = (
-                        (episode_exp - old_exp) * self.ema_alpha) + old_exp
+                                                                      (
+                                                                                  episode_exp - old_exp) * self.ema_alpha) + old_exp
                 post_stats = f"Rollout finished after {len(rollouts[0].observations)} steps ({self.total_steps_generated} total steps), result was {str_result}"
                 if result != 0:
                     post_stats += f", goal speed: {goal_speed:.2f} kph"
