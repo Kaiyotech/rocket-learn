@@ -13,6 +13,7 @@ from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 from rocket_learn.utils.util import make_python_state
 from rocket_learn.utils.truncated_condition import TruncatedCondition
+import pickle
 
 
 def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
@@ -105,6 +106,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 # mirror = obs[-1]
                 # obs = obs[:-1]
                 dist = policy.get_action_distribution(obs)
+                to_dump = (obs, dist)
+                fh = open("obs-dist.pkl", "ab")
+                pickle.dump(to_dump, fh)
                 action_indices = policy.sample_action(dist)
                 log_probs = policy.log_prob(dist, action_indices)
                 actions = policy.env_compatible(action_indices)
