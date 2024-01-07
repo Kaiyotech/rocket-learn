@@ -105,7 +105,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     # obs = observations
                 # mirror = obs[-1]
                 # obs = obs[:-1]
-                # dist = policy.get_action_distribution(obs)
+                dist = policy.get_action_distribution(obs)
                 # to_dump = (obs, dist)
                 # fh = open("obs-dist.pkl", "ab")
                 # pickle.dump(to_dump, fh)
