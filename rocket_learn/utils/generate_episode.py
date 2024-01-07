@@ -105,10 +105,10 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     # obs = observations
                 # mirror = obs[-1]
                 # obs = obs[:-1]
-                dist = policy.get_action_distribution(obs)
-                to_dump = (obs, dist)
-                fh = open("obs-dist.pkl", "ab")
-                pickle.dump(to_dump, fh)
+                # dist = policy.get_action_distribution(obs)
+                # to_dump = (obs, dist)
+                # fh = open("obs-dist.pkl", "ab")
+                # pickle.dump(to_dump, fh)
                 action_indices = policy.sample_action(dist)
                 log_probs = policy.log_prob(dist, action_indices)
                 actions = policy.env_compatible(action_indices)
