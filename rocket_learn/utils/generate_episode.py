@@ -84,7 +84,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             all_log_probs = []
             mirror = []
             # need to remove the mirror from the end here instead of later so it doesn't make it to ppo
-            if len(observations[0]) > 2:
+            if len(observations[0]) == 3:
                 for i, observation in enumerate(observations):
                     mirror.append(observation[2])
                     observations[i] = observations[i][:-1]
