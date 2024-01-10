@@ -294,7 +294,7 @@ class PPO:
         for key, value in total_dict.items():
             total_dict[key] = [x / num_files for x in total_dict[key]]
         for key, value in total_dict_blue.items():
-            total_dict_blue[key] = value / num_files
+            total_dict_blue[key] = value / (num_files * num_files)
         for key, value in total_dict_orange.items():
             total_dict_orange[key] = value / num_files
 
