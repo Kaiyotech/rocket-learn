@@ -60,7 +60,8 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         # observations = env.reset()
 
     result = 0
-
+    from_python_actions = np.load("python_actions.npy")
+    step_count = 0
     last_state = info['state'] if not rust_sim else None  # game_state for obs_building of other agents
 
     latest_policy_indices = [0 if isinstance(p, HardcodedAgent) else 1 for p in policies]
@@ -75,7 +76,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             ExperienceBuffer()
             for _ in range(sum(latest_policy_indices))
         ]
-
+    python_actions = []
     b = o = 0
     with torch.no_grad():
         while True:
@@ -166,9 +167,22 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             if len(mirror) > 0:
                 all_actions = np.column_stack((all_actions, mirror))
             if not rust_sim:
+                # print(f"python index: {all_actions}")
+                # print(all_actions)
+                step_count += 1
+                python_actions.append(all_actions)
                 observations, rewards, done, info = env.step(all_actions)
+                dist = np.linalg.norm(observations[0][51:54])
+                vel_diff = np.linalg.norm(observations[0][54:57])
+                print(f"{step_count}: {all_actions[0]}:{all_actions[1]}: {dist}\t{vel_diff}")
             else:
+                # print(f"python index: {all_actions}")
+                all_actions = from_python_actions[step_count]
+                step_count += 1
                 observations, rewards, done, info, state = env.step(all_actions)
+                dist = np.linalg.norm(observations[0][51:54])
+                vel_diff = np.linalg.norm(observations[0][54:57])
+                print(f"{step_count}: {all_actions[0]}:{all_actions[1]}: {dist}\t{vel_diff}")
                 # state is a f32 vector of the state
                 if send_gamestates:
                     info['state'] = make_python_state(state)
@@ -249,4 +263,8 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
     if progress is not None:
         progress.close()
 
+    if not rust_sim:
+        np.save("python_actions.npy", python_actions)
+    exit()
     return rollouts, result
+

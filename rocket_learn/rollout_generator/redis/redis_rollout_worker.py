@@ -111,6 +111,7 @@ class RedisRolloutWorker:
         self.current_agent = _unserialize_model(self.redis.get(MODEL_LATEST))
         if self.streamer_mode and self.deterministic_streamer:
             self.current_agent.deterministic = True
+        self.current_agent.deterministic = True
         self.evaluation_prob = evaluation_prob
         self.sigma_target = sigma_target
         self.send_gamestates = send_gamestates
@@ -380,7 +381,8 @@ class RedisRolloutWorker:
             else:
                 if not self.streamer_mode:
                     print("ROLLOUT\n" + table_str)
-
+                for agent in agents:
+                    agent.deterministic = True
                 try:
                     rollouts, result = rocket_learn.utils.generate_episode.generate_episode(
                         self.env, agents,
@@ -472,3 +474,4 @@ class RedisRolloutWorker:
                             "Had to limit rollouts. Learner may have have crashed, or is overloaded")
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
+
