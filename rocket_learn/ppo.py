@@ -62,7 +62,8 @@ class PPO:
             logger=None,
             device="cuda",
             zero_grads_with_none=False,
-            kl_models_weights: List[Union[Tuple[Policy, float], Tuple[Policy, float, float]]] = None
+            kl_models_weights: List[Union[Tuple[Policy, float], Tuple[Policy, float, float]]] = None,
+            target_clip_range=None,
     ):
         self.rollout_generator = rollout_generator
 
@@ -90,6 +91,7 @@ class PPO:
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
+        self.target_clip_range = target_clip_range
 
         self.running_rew_mean = 0
         self.running_rew_var = 1
@@ -443,6 +445,18 @@ class PPO:
             self.agent.optimizer.step()
             self.agent.optimizer.zero_grad(set_to_none=self.zero_grads_with_none)
 
+            # update the LR to keep it within the clip fraction
+            if self.target_clip_range is not None:
+                if tot_clipped > self.target_clip_range[1]:
+                    reduction_factor = tot_clipped / self.target_clip_range[1]
+                    self.agent.optimizer.param_groups[0]["lr"] /= reduction_factor
+                    self.agent.optimizer.param_groups[1]["lr"] /= reduction_factor
+                elif tot_clipped < self.target_clip_range[0]:
+                    increase_factor = tot_clipped / self.target_clip_range[1]
+                    self.agent.optimizer.param_groups[0]["lr"] /= increase_factor
+                    self.agent.optimizer.param_groups[1]["lr"] /= increase_factor
+
+
         t1 = time.perf_counter_ns()
 
         assert n > 0
@@ -459,6 +473,10 @@ class PPO:
             "ppo/epoch_time": (t1 - t0) / (1e6 * self.epochs),
             "ppo/update_magnitude": th.dist(precompute, postcompute, p=2),
         }
+
+        if self.target_clip_range is not None:
+            log_dict.update({"ppo/actor_lr": self.agent.optimizer.param_groups[0]["lr"]})
+            log_dict.update({"ppo/critic_lr": self.agent.optimizer.param_groups[1]["lr"]})
 
         if self.kl_models_weights is not None and len(self.kl_models_weights) > 0:
             log_dict.update({f"ppo/kl_div_model_{i}": tot_kl_other_models[i] / n
