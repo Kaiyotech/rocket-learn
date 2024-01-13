@@ -68,6 +68,8 @@ class PPO:
             disable_gradient_logging=False,
             reward_logging_dir=None,
             target_clip_range=None,
+            min_lr=1e-6,
+            max_lr=1,
     ):
         self.rollout_generator = rollout_generator
         self.reward_logging_dir = reward_logging_dir
@@ -96,6 +98,8 @@ class PPO:
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
         self.target_clip_range = target_clip_range
+        self.min_lr = min_lr
+        self.max_lr = max_lr
 
         self.running_rew_mean = 0
         self.running_rew_var = 1
@@ -576,7 +580,10 @@ class PPO:
 
             # update the LR to keep it within the clip fraction
             if self.target_clip_range is not None:
-                if tot_clipped > self.target_clip_range[1]:
+                if tot_clipped == 0:
+                    self.agent.optimizer.param_groups[0]["lr"] *= 10
+                    self.agent.optimizer.param_groups[1]["lr"] *= 10
+                elif tot_clipped > self.target_clip_range[1]:
                     reduction_factor = tot_clipped / self.target_clip_range[1]
                     self.agent.optimizer.param_groups[0]["lr"] /= reduction_factor
                     self.agent.optimizer.param_groups[1]["lr"] /= reduction_factor
@@ -584,6 +591,13 @@ class PPO:
                     increase_factor = tot_clipped / self.target_clip_range[1]
                     self.agent.optimizer.param_groups[0]["lr"] /= increase_factor
                     self.agent.optimizer.param_groups[1]["lr"] /= increase_factor
+
+                self.agent.optimizer.param_groups[0]["lr"] = min(max(self.agent.optimizer.param_groups[0]["lr"],
+                                                                     self.min_lr), self.max_lr)
+                self.agent.optimizer.param_groups[1]["lr"] = min(max(self.agent.optimizer.param_groups[1]["lr"],
+                                                                     self.min_lr), self.max_lr)
+
+
 
 
         t1 = time.perf_counter_ns()
