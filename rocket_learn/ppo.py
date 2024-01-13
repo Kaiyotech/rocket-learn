@@ -1,9 +1,11 @@
 import cProfile
 import io
+import json
 import os
 import pstats
 import time
 import sys
+from json import JSONDecodeError
 from typing import Iterator, List, Tuple, Union
 
 import numba
@@ -63,10 +65,14 @@ class PPO:
             device="cuda",
             zero_grads_with_none=False,
             kl_models_weights: List[Union[Tuple[Policy, float], Tuple[Policy, float, float]]] = None,
+            disable_gradient_logging=False,
+            reward_logging_dir=None,
             target_clip_range=None,
+            min_lr=1e-6,
+            max_lr=1,
     ):
         self.rollout_generator = rollout_generator
-
+        self.reward_logging_dir = reward_logging_dir
         # TODO let users choose their own agent
         # TODO move agent to rollout generator
         self.agent = agent.to(device)
@@ -92,6 +98,8 @@ class PPO:
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
         self.target_clip_range = target_clip_range
+        self.min_lr = min_lr
+        self.max_lr = max_lr
 
         self.running_rew_mean = 0
         self.running_rew_var = 1
@@ -99,7 +107,8 @@ class PPO:
 
         self.total_steps = 0
         self.logger = logger
-        self.logger.watch((self.agent.actor, self.agent.critic))
+        if not disable_gradient_logging:
+            self.logger.watch((self.agent.actor, self.agent.critic))
         self.timer = time.time_ns() // 1_000_000
         self.jit_tracer = None
 
@@ -109,6 +118,13 @@ class PPO:
                 if len(kl_models_weights[i]) == 2:
                     kl_models_weights[i] = kl_models_weights[i] + (None,)
         self.kl_models_weights = kl_models_weights
+
+        # clean up previous files
+        if self.reward_logging_dir is not None:
+            files = os.listdir(self.reward_logging_dir)
+            for file in files:
+                file = os.path.join(self.reward_logging_dir, file)
+                os.unlink(file)
 
     def update_reward_norm(self, rewards: np.ndarray) -> np.ndarray:
         batch_mean = np.mean(rewards)
@@ -189,9 +205,24 @@ class PPO:
 
             self.rollout_generator.update_parameters(self.agent.actor)
 
+            # calculate years for graph
+            # if self.tick_skip_starts is not None:
+            #     new_iteration = iteration
+            #     years = 0
+            #     for i in reversed(self.tick_skip_starts):
+            #         length = new_iteration - i[1]
+            #         years += length * i[2] / (3600 * 24 * 365 * (120 / i[0]))
+            #         new_iteration = i[1]
+            #     self.logger.log({"ppo/years": years}, step=iteration, commit=False)
+
+            # add reward log outputs here with commit false
+            if self.reward_logging_dir is not None:
+                self.log_rewards(iteration - 1)  # have to remove 1 since it's already incremented
+
             self.total_steps += self.n_steps  # size
             t1 = time.time()
             self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps})
+            print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
 
             # pr.disable()
             # s = io.StringIO()
@@ -202,6 +233,98 @@ class PPO:
     def set_logger(self, logger):
         self.logger = logger
 
+    def log_rewards(self, iteration):
+        # need to read all of the json in the directory, handle them, delete them
+        #
+        files = os.listdir(self.reward_logging_dir)
+        num_files = 0
+        num_steps = 0
+        total_dict = {}
+        avg_dict = {}
+        total_dict_blue = {}
+        total_dict_orange = {}
+        avg_dict_blue = {}
+        avg_dict_orange = {}
+        for file in files:
+            num_files += 1
+            try:
+                file = os.path.join(self.reward_logging_dir, file)
+                fh = open(file)
+                data = json.load(fh)
+                num_steps += data.get("step_num")
+                current_steps = data.get("step_num")
+                num_players = data.get("num_players")
+                mid = num_players // 2
+                # just sum all of the sums and then divide by num_files later to get average episode total
+                for key, value in data.get("RewardSum").items():
+                    if key in total_dict:
+                        total_dict[key] = [x + y for x, y in zip(total_dict[key], value)]
+                    else:
+                        total_dict[key] = value
+                # to get average we need to weight the averages by steps
+                w_1 = current_steps / num_steps  # num_steps already includes current_steps
+                w_2 = (num_steps - current_steps) / num_steps
+                for key, value in data.get("RewardAvg").items():
+                    if key in avg_dict:
+                        avg_dict[key] = [x * w_2 + y * w_1 for x, y in zip(avg_dict[key], value)]
+                    else:
+                        avg_dict[key] = value
+
+                # split into blue and orange
+                for key, value in total_dict.items():
+                    if key in total_dict_blue:
+                        total_dict_blue[key] += sum(value[:mid]) / mid
+                    else:
+                        total_dict_blue[key] = sum(value[:mid]) / mid
+                for key, value in total_dict.items():
+                    if key in total_dict_orange:
+                        total_dict_orange[key] += sum(value[mid:]) / mid
+                    else:
+                        total_dict_orange[key] = sum(value[mid:]) / mid
+                for key, value in avg_dict.items():
+                    if key in avg_dict_blue:
+                        avg_dict_blue[key] = avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1
+                    else:
+                        avg_dict_blue[key] = sum(value[:mid]) / mid
+                for key, value in avg_dict.items():
+                    if key in avg_dict_orange:
+                        avg_dict_orange[key] = avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1
+                    else:
+                        avg_dict_orange[key] = sum(value[mid:]) / mid
+                fh.close()
+                os.unlink(file)
+            except JSONDecodeError:
+                print(f"Error with json while working on file {file}")
+
+        # divide the sum by number of episodes/aka files
+        for key, value in total_dict.items():
+            total_dict[key] = [x / num_files for x in total_dict[key]]
+        for key, value in total_dict_blue.items():
+            total_dict_blue[key] = value / (num_files * num_files)
+        for key, value in total_dict_orange.items():
+            total_dict_orange[key] = value / num_files
+
+        # total_dict is the episode average, avg_dict is the per-step avg
+        log_dict = {}
+        # remove this per player version, it's messy and loud
+        # log_dict.update(
+        #     {f"rewards_ep_ind/{key}_{i}": val for key, values in total_dict.items() for i, val in enumerate(values)})
+        # log_dict.update(
+        #     {f"rewards_step_ind/{key}_{i}": val for key, values in avg_dict.items() for i, val in enumerate(values)})
+        for key, value in total_dict.items():
+            log_dict.update({f"rewards_ep/{key}": sum(value) / len(value)})
+        for key, value in avg_dict.items():
+            log_dict.update({f"rewards_step/{key}": sum(value) / len(value)})
+        for key, value in total_dict_blue.items():
+            log_dict.update({f"rewards_ep_team/{key}_blue": value})
+        for key, value in total_dict_orange.items():
+            log_dict.update({f"rewards_ep_team/{key}_orange": value})
+        for key, value in avg_dict_blue.items():
+            log_dict.update({f"rewards_step_team/{key}_blue": value})
+        for key, value in avg_dict_orange.items():
+            log_dict.update({f"rewards_step_team/{key}_orange": value})
+        # sorted_dict = dict(sorted(log_dict.items()))  #  wandb doesn't respect this anyway
+        self.logger.log(log_dict, step=iteration, commit=False)
     def evaluate_actions(self, observations, actions):
         """
         Calculate Log Probability and Entropy of actions
@@ -259,11 +382,12 @@ class PPO:
         n = 0
 
         for buffer in buffers:  # Do discounts for each ExperienceBuffer individually
-            if isinstance(buffer.observations[0], (tuple, list)):
-                transposed = tuple(zip(*buffer.observations))
-                obs_tensor = tuple(torch.from_numpy(np.vstack(t)).float() for t in transposed)
-            else:
-                obs_tensor = th.from_numpy(np.vstack(buffer.observations)).float()
+            # this sections breaks on advanced obs, not sure if necessary at all?
+            # if isinstance(buffer.observations[0], (tuple, list)):
+            #     transposed = tuple(zip(*buffer.observations))
+            #     obs_tensor = tuple(torch.from_numpy(np.vstack(t)).float() for t in transposed)
+            # else:
+            obs_tensor = th.from_numpy(np.vstack(buffer.observations)).float()
 
             with th.no_grad():
                 if isinstance(obs_tensor, tuple):
@@ -271,6 +395,7 @@ class PPO:
                 else:
                     x = obs_tensor.to(self.device)
                 values = self.agent.critic(x).detach().cpu().numpy().flatten()  # No batching?
+                torch.cuda.empty_cache()  # adding to try to fix memory issues
 
             actions = np.stack(buffer.actions)
             log_probs = np.stack(buffer.log_probs)
@@ -295,11 +420,17 @@ class PPO:
         ep_rewards = np.array(ep_rewards)
         ep_steps = np.array(ep_steps)
 
+        total_steps = sum(ep_steps)
         self.logger.log({
             "ppo/ep_reward_mean": ep_rewards.mean(),
             "ppo/ep_reward_std": ep_rewards.std(),
             "ppo/ep_len_mean": ep_steps.mean(),
+            "ppo/mean_reward_per_step": ep_rewards.mean() / ep_steps.mean(),
+            "ppo/abs_ep_reward_mean": np.abs(ep_rewards).sum() / ep_steps.mean(),
+
         }, step=iteration, commit=False)
+
+        print(f"std, mean rewards: {ep_rewards.std()}\t{ep_rewards.mean()}")
 
         if isinstance(obs_tensors[0], tuple):
             transposed = zip(*obs_tensors)
@@ -367,8 +498,9 @@ class PPO:
                 except ValueError as e:
                     print("ValueError in evaluate_actions", e)
                     continue
-
-                ratio = torch.exp(log_prob - old_log_prob)
+                diff_log_prob = log_prob - old_log_prob
+                #  stabilize the ratio for small log prob
+                ratio = torch.where(diff_log_prob.abs() < 0.00005, 1 + diff_log_prob, torch.exp(diff_log_prob))
 
                 values_pred = self.agent.critic(obs)
 
@@ -378,7 +510,8 @@ class PPO:
 
                 # clipped surrogate loss
                 policy_loss_1 = adv * ratio
-                policy_loss_2 = adv * th.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
+                low_side = 1 - self.clip_range
+                policy_loss_2 = adv * th.clamp(ratio, low_side, 1 / low_side)
                 policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
 
                 # **If we want value clipping, add it here**
@@ -447,7 +580,10 @@ class PPO:
 
             # update the LR to keep it within the clip fraction
             if self.target_clip_range is not None:
-                if tot_clipped > self.target_clip_range[1]:
+                if tot_clipped == 0:
+                    self.agent.optimizer.param_groups[0]["lr"] *= 10
+                    self.agent.optimizer.param_groups[1]["lr"] *= 10
+                elif tot_clipped > self.target_clip_range[1]:
                     reduction_factor = tot_clipped / self.target_clip_range[1]
                     self.agent.optimizer.param_groups[0]["lr"] /= reduction_factor
                     self.agent.optimizer.param_groups[1]["lr"] /= reduction_factor
@@ -455,6 +591,13 @@ class PPO:
                     increase_factor = tot_clipped / self.target_clip_range[1]
                     self.agent.optimizer.param_groups[0]["lr"] /= increase_factor
                     self.agent.optimizer.param_groups[1]["lr"] /= increase_factor
+
+                self.agent.optimizer.param_groups[0]["lr"] = min(max(self.agent.optimizer.param_groups[0]["lr"],
+                                                                     self.min_lr), self.max_lr)
+                self.agent.optimizer.param_groups[1]["lr"] = min(max(self.agent.optimizer.param_groups[1]["lr"],
+                                                                     self.min_lr), self.max_lr)
+
+
 
 
         t1 = time.perf_counter_ns()
@@ -512,7 +655,7 @@ class PPO:
         """
 
         version_str = str(self.logger.project) + "_" + str(current_step)
-        version_dir = save_location + "\\" + version_str
+        version_dir = os.path.join(save_location, version_str)
 
         os.makedirs(version_dir, exist_ok=current_step == -1)
 
@@ -523,11 +666,11 @@ class PPO:
             'critic_state_dict': self.agent.critic.state_dict(),
             'optimizer_state_dict': self.agent.optimizer.state_dict(),
             # TODO save/load reward normalization mean, std, count
-        }, version_dir + "\\checkpoint.pt")
+        }, os.path.join(version_dir, "checkpoint.pt"))
 
         if save_actor_jit:
             traced_actor = th.jit.trace(self.agent.actor, self.jit_tracer)
-            torch.jit.save(traced_actor, version_dir + "\\jit_policy.jit")
+            torch.jit.save(traced_actor, os.path.join(version_dir, "jit_policy.jit"))
 
     def freeze_policy(self, frozen_iterations=100):
         """
