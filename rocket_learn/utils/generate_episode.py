@@ -55,13 +55,17 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
     if not rust_sim:
         observations, info = env.reset(return_info=True)
     else:
-        observations = env.reset(len(policies) // 2, infinite_boost_odds=infinite_boost_odds)
+        observations, state = env.reset(len(policies) // 2, infinite_boost_odds=infinite_boost_odds)
         info = {'result': 0.0}
+        if send_gamestates:
+            info['state'] = make_python_state(state)
+        else:
+            info['state'] = None
         # observations = env.reset()
 
     result = 0
 
-    last_state = info['state'] if not rust_sim else None  # game_state for obs_building of other agents
+    last_state = info['state']   # game_state for obs_building of other agents
 
     latest_policy_indices = [0 if isinstance(p, HardcodedAgent) else 1 for p in policies]
     # rollouts for all latest_policies
