@@ -20,6 +20,7 @@ from rocket_learn.agent.actor_critic_agent import ActorCriticAgent
 from rocket_learn.agent.policy import Policy
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGenerator
+from weakref import ref
 
 
 class PPO:
@@ -67,9 +68,12 @@ class PPO:
             kl_models_weights: List[Union[Tuple[Policy, float], Tuple[Policy, float, float]]] = None,
             disable_gradient_logging=False,
             reward_logging_dir=None,
-            target_clip_range=None,
-            min_lr=1e-6,
+            target_clip_frac=None,
+            min_lr=1e-7,
             max_lr=1,
+            clip_frac_kp=0.5,
+            clip_frac_ki=0,
+            clip_frac_kd=0,
     ):
         self.rollout_generator = rollout_generator
         self.reward_logging_dir = reward_logging_dir
@@ -97,9 +101,8 @@ class PPO:
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
-        self.target_clip_range = target_clip_range
-        self.min_lr = min_lr
-        self.max_lr = max_lr
+        self.lr_pid_cont = PIDLearningRateController(target_clip_frac, clip_frac_kp, clip_frac_ki, clip_frac_kd, min_lr, max_lr)
+        self.target_clip_frac = target_clip_frac
 
         self.running_rew_mean = 0
         self.running_rew_var = 1
@@ -578,27 +581,13 @@ class PPO:
             self.agent.optimizer.step()
             self.agent.optimizer.zero_grad(set_to_none=self.zero_grads_with_none)
 
-            # update the LR to keep it within the clip fraction
-            if self.target_clip_range is not None:
-                if tot_clipped == 0:
-                    self.agent.optimizer.param_groups[0]["lr"] *= 10
-                    self.agent.optimizer.param_groups[1]["lr"] *= 10
-                elif tot_clipped > self.target_clip_range[1]:
-                    reduction_factor = tot_clipped / self.target_clip_range[1]
-                    self.agent.optimizer.param_groups[0]["lr"] /= reduction_factor
-                    self.agent.optimizer.param_groups[1]["lr"] /= reduction_factor
-                elif tot_clipped < self.target_clip_range[0]:
-                    increase_factor = tot_clipped / self.target_clip_range[1]
-                    self.agent.optimizer.param_groups[0]["lr"] /= increase_factor
-                    self.agent.optimizer.param_groups[1]["lr"] /= increase_factor
-
-                self.agent.optimizer.param_groups[0]["lr"] = min(max(self.agent.optimizer.param_groups[0]["lr"],
-                                                                     self.min_lr), self.max_lr)
-                self.agent.optimizer.param_groups[1]["lr"] = min(max(self.agent.optimizer.param_groups[1]["lr"],
-                                                                     self.min_lr), self.max_lr)
-
-
-
+        # update the LR to keep it within the clip fraction
+        if self.target_clip_frac is not None:
+            orig_actor = self.agent.optimizer.param_groups[0]["lr"]
+            self.agent.optimizer.param_groups[0]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n, self.agent.optimizer.param_groups[0]["lr"])
+            self.agent.optimizer.param_groups[1]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n, self.agent.optimizer.param_groups[1]["lr"])
+            after_actor = self.agent.optimizer.param_groups[0]["lr"]
+            print(f"clipped {tot_clipped} and changed from {orig_actor} to {after_actor}")
 
         t1 = time.perf_counter_ns()
 
@@ -617,7 +606,7 @@ class PPO:
             "ppo/update_magnitude": th.dist(precompute, postcompute, p=2),
         }
 
-        if self.target_clip_range is not None:
+        if self.target_clip_frac is not None:
             log_dict.update({"ppo/actor_lr": self.agent.optimizer.param_groups[0]["lr"]})
             log_dict.update({"ppo/critic_lr": self.agent.optimizer.param_groups[1]["lr"]})
 
@@ -628,6 +617,8 @@ class PPO:
                              for i in range(len(self.kl_models_weights))})
 
         self.logger.log(log_dict, step=iteration, commit=False)  # Is committed after when calculating fps
+
+
 
     def load(self, load_location, continue_iterations=True):
         """
@@ -689,3 +680,58 @@ class PPO:
 
         self._saved_lr = self.agent.optimizer.param_groups[0]["lr"]
         self.agent.optimizer.param_groups[0]["lr"] = 0
+
+
+
+# adapted from AechPro distrib-rl by AechPro and SomeRando
+# https://github.com/AechPro/distrib-rl/blob/main/distrib_rl/policy_optimization/learning_rate_controllers/pid_learning_rate_controller.py
+class PIDLearningRateController(object):
+    def __init__(self, target=0.025, kp=0.1, ki=0, kd=0, min_output=1e-7, max_output=1, max_clip_error=0.05):
+        self.target = target
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.min_output = min_output
+        self.max_output = max_output
+        self.max_clip_error = max_clip_error
+
+        self.last_error = 0
+        self.integral = 0
+
+    def adjust(self, mean_clip, current_lr):
+
+        # clip_target = self.clip_target
+
+        # mean_lr = 0
+        # clip mean_clip so it can't fall too quickly
+        mean_clip = min(mean_clip, self.max_clip_error)
+
+        error = self.target - mean_clip
+        
+
+        proportional = error * self.kp
+
+        derivative = (error - self.last_error) * self.ki
+
+        self.integral += error * self.kd
+
+        adjustment = proportional + derivative + self.integral
+
+        self.last_error = error
+
+        return min(max(current_lr + adjustment, self.min_output), self.max_output)
+
+        # if hasattr(optimizer, "torch_optimizer"):
+        #     mean_lr = 0
+        #     n = 0
+        #     for group in optimizer.torch_optimizer.param_groups:
+        #         if "lr" in group.keys():
+        #             group["lr"] = min(max(group["lr"] + adjustment, min_lr), max_lr)
+        #             mean_lr += group["lr"]
+        #             n += 1
+        #     return mean_lr / n
+        # else:
+        #     optimizer.step_size = min(
+        #         max(optimizer.step_size + adjustment, min_lr), max_lr
+        #     )
+        #     return optimizer.step_size
