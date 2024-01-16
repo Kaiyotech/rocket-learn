@@ -152,7 +152,7 @@ class PPO:
 
         return (rewards - self.running_rew_mean) / np.sqrt(self.running_rew_var + 1e-8)  # TODO normalize before update?
 
-    def run(self, iterations_per_save=10, save_dir=None, save_jit=False):
+    def run(self, iterations_per_save=10, save_dir=None, save_jit=False, end_after_steps=None):
         """
         Generate rollout data and train
         :param iterations_per_save: number of iterations between checkpoint saves
@@ -232,6 +232,9 @@ class PPO:
             # sortby = pstats.SortKey.CUMULATIVE
             # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
             # ps.dump_stats(f"profile_{self.total_steps}")
+            if end_after_steps is not None:
+                if self.n_steps >= end_after_steps:
+                    break
 
     def set_logger(self, logger):
         self.logger = logger
