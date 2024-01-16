@@ -74,6 +74,7 @@ class PPO:
             clip_frac_kp=0.5,
             clip_frac_ki=0,
             clip_frac_kd=0,
+            wandb_wait_btwn=5,
     ):
         self.rollout_generator = rollout_generator
         self.reward_logging_dir = reward_logging_dir
@@ -84,6 +85,8 @@ class PPO:
         self.zero_grads_with_none = zero_grads_with_none
         self.frozen_iterations = 0
         self._saved_lr = None
+
+        self.wandb_wait_btwn=wandb_wait_btwn
 
         self.starting_iteration = 0
 
@@ -169,6 +172,7 @@ class PPO:
         rollout_gen = self.rollout_generator.generate_rollouts()
 
         self.rollout_generator.update_parameters(self.agent.actor)
+        last_wandb_call = 0
 
         while True:
             # pr = cProfile.Profile()
@@ -224,7 +228,11 @@ class PPO:
 
             self.total_steps += self.n_steps  # size
             t1 = time.time()
-            self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps})
+            commit = False
+            if t1 - last_wandb_call > self.wandb_wait_btwn:
+                commit = True
+            self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps},
+                            step=iteration, commit=commit)
             print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
 
             # pr.disable()
