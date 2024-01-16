@@ -233,7 +233,7 @@ class PPO:
             # ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
             # ps.dump_stats(f"profile_{self.total_steps}")
             if end_after_steps is not None:
-                if self.n_steps >= end_after_steps:
+                if self.total_steps >= end_after_steps:
                     break
 
     def set_logger(self, logger):
