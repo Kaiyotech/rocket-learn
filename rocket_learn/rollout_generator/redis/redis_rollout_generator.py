@@ -209,7 +209,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                     self._update_stats(states, [b in relevant_buffers for b in buffers])
                 yield from relevant_buffers
 
-    def _plot_ratings(self):
+    def _plot_ratings(self, iteration):
         fig_data = []
         i = 0
         means = {}
@@ -312,7 +312,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
 
         self.logger.log({
             "qualities": fig,
-        }, commit=False)
+        }, commit=False, step=iteration)
 
     def _add_opponent(self, agent):
         latest_id = self.redis.get(LATEST_RATING_ID)
@@ -346,7 +346,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         # Inform that new opponent is ready
         self.redis.set(LATEST_RATING_ID, key)
 
-    def update_parameters(self, new_params):
+    def update_parameters(self, new_params, iteration):
         """
         update redis (and thus workers) with new model data and save data as future opponent
         :param new_params: new model parameters
@@ -359,7 +359,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
               "\n".join(f"\t{c}: {n}" for c, n in self.contributors.most_common(5)))
         self.logger.log({
             "redis/contributors": wandb.Table(columns=["name", "steps"], data=self.contributors.most_common())},
-            commit=False
+            commit=False, step=iteration
         )
 
         # Add pretrained agents' tables if any pretrained agents were passed into init
@@ -381,10 +381,10 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             for gamemode in self.gamemodes:
                 self.logger.log({
                     "pretrained/qualities-" + gamemode: wandb.Table(columns=["name", "rating"], data=pretrained_qualities[gamemode])
-                }, commit=False)
+                }, step=iteration, commit=False)
 
         if self.gamemodes[0] != '1v0':
-            self._plot_ratings()
+            self._plot_ratings(iteration)
         tot_contributors = self.redis.hgetall(CONTRIBUTORS)
         tot_contributors = Counter({name: int(count)
                                    for name, count in tot_contributors.items()})
@@ -393,7 +393,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             self.redis.hset(CONTRIBUTORS, mapping=tot_contributors)
         self.contributors.clear()
 
-        self.logger.log({"redis/rollout_bytes": self.tot_bytes}, commit=False)
+        self.logger.log({"redis/rollout_bytes": self.tot_bytes}, commit=False, step=iteration)
         self.tot_bytes = 0
 
         n_updates = self.redis.incr(N_UPDATES) - 1
@@ -401,7 +401,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
 
         if n_updates > 0:
             self.logger.log({f"stat/{name}": value for name,
-                            value in self._get_stats().items()}, commit=False)
+                            value in self._get_stats().items()}, commit=False, step=iteration)
         self._reset_stats()
 
         if n_updates % self.model_freq == 0:

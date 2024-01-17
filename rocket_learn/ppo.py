@@ -171,7 +171,7 @@ class PPO:
         iteration = self.starting_iteration
         rollout_gen = self.rollout_generator.generate_rollouts()
 
-        self.rollout_generator.update_parameters(self.agent.actor)
+        self.rollout_generator.update_parameters(self.agent.actor, iteration)
         last_wandb_call = 0
 
         while True:
@@ -210,7 +210,7 @@ class PPO:
 
                 self.frozen_iterations -= 1
 
-            self.rollout_generator.update_parameters(self.agent.actor)
+            self.rollout_generator.update_parameters(self.agent.actor, iteration)
 
             # calculate years for graph
             # if self.tick_skip_starts is not None:
