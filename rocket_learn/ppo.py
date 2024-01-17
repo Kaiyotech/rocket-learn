@@ -171,7 +171,7 @@ class PPO:
         iteration = self.starting_iteration
         rollout_gen = self.rollout_generator.generate_rollouts()
 
-        self.rollout_generator.update_parameters(self.agent.actor, iteration)
+        self.rollout_generator.update_parameters(self.agent.actor, iteration)  # noqa
         last_wandb_call = 0
 
         while True:
@@ -210,7 +210,7 @@ class PPO:
 
                 self.frozen_iterations -= 1
 
-            self.rollout_generator.update_parameters(self.agent.actor, iteration)
+            self.rollout_generator.update_parameters(self.agent.actor, iteration-1)  # noqa
 
             # calculate years for graph
             # if self.tick_skip_starts is not None:
@@ -224,7 +224,7 @@ class PPO:
 
             # add reward log outputs here with commit false
             if self.reward_logging_dir is not None:
-                self.log_rewards(iteration - 1)  # have to remove 1 since it's already incremented
+                self.log_rewards(iteration-1)
 
             self.total_steps += self.n_steps  # size
             t1 = time.time()
@@ -232,7 +232,7 @@ class PPO:
             if t1 - last_wandb_call > self.wandb_wait_btwn:
                 commit = True
             self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps},
-                            step=iteration, commit=commit)
+                            step=iteration-1, commit=commit)
             print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
 
             # pr.disable()

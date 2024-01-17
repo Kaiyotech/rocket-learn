@@ -346,7 +346,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         # Inform that new opponent is ready
         self.redis.set(LATEST_RATING_ID, key)
 
-    def update_parameters(self, new_params, iteration):
+    def update_parameters(self, new_params, iteration):  # noqa
         """
         update redis (and thus workers) with new model data and save data as future opponent
         :param new_params: new model parameters
