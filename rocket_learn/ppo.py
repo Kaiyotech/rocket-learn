@@ -398,10 +398,11 @@ class PPO:
         for buffer in buffers:  # Do discounts for each ExperienceBuffer individually
             # this sections breaks on advanced obs, not sure if necessary at all?
             # if isinstance(buffer.observations[0], (tuple, list)):
-            #     transposed = tuple(zip(*buffer.observations))
-            #     obs_tensor = tuple(torch.from_numpy(np.vstack(t)).float() for t in transposed)
-            # else:
-            obs_tensor = th.from_numpy(np.vstack(buffer.observations)).float()
+            if isinstance(buffer.observations[0], list):
+                transposed = tuple(zip(*buffer.observations))
+                obs_tensor = tuple(torch.from_numpy(np.vstack(t)).float() for t in transposed)
+            else:
+                obs_tensor = th.from_numpy(np.vstack(buffer.observations)).float()
 
             with th.no_grad():
                 if isinstance(obs_tensor, tuple):
