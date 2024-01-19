@@ -19,7 +19,8 @@ from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGenerator
 from rocket_learn.rollout_generator.redis.utils import decode_buffers, _unserialize, PRETRAINED_QUALITIES, QUALITIES, _serialize, ROLLOUTS, \
     VERSION_LATEST, OPPONENT_MODELS, CONTRIBUTORS, N_UPDATES, MODEL_LATEST, _serialize_model, get_rating, get_ratings, \
-    get_pretrained_rating, get_pretrained_ratings, add_pretrained_ratings, _ALL, LATEST_RATING_ID, EXPERIENCE_PER_MODE
+    get_pretrained_rating, get_pretrained_ratings, add_pretrained_ratings, _ALL, LATEST_RATING_ID, EXPERIENCE_PER_MODE, \
+    TOTAL_TIMESTEPS
 from rocket_learn.utils.stat_trackers.stat_tracker import StatTracker
 
 
@@ -346,13 +347,14 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         # Inform that new opponent is ready
         self.redis.set(LATEST_RATING_ID, key)
 
-    def update_parameters(self, new_params, iteration):  # noqa
+    def update_parameters(self, new_params, iteration, total_timesteps):  # noqa
         """
         update redis (and thus workers) with new model data and save data as future opponent
         :param new_params: new model parameters
         """
         model_bytes = _serialize_model(new_params)
         self.redis.set(MODEL_LATEST, model_bytes)
+        self.redis.set(TOTAL_TIMESTEPS, _serialize(total_timesteps))
         self.redis.decr(VERSION_LATEST)
 
         print("Top contributors:\n" +
