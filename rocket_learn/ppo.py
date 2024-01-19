@@ -171,7 +171,7 @@ class PPO:
         iteration = self.starting_iteration
         rollout_gen = self.rollout_generator.generate_rollouts()
 
-        self.rollout_generator.update_parameters(self.agent.actor, iteration)  # noqa
+        self.rollout_generator.update_parameters(self.agent.actor, iteration, self.total_steps)  # noqa
         last_wandb_call = 0
 
         while True:
