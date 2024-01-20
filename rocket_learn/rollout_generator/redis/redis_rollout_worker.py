@@ -9,15 +9,10 @@ from uuid import uuid4
 import sqlite3 as sql
 
 import numpy as np
-import rlgym_sim.make
 
 from redis import Redis
-from rlgym_sim.envs import Match
-# from rlgym_sim.gamelaunch import LaunchPreference
-from rlgym_sim.gym import Gym
-from tabulate import tabulate
 
-from rlgym_sim.utils.state_setters import DefaultState
+from tabulate import tabulate
 
 import rocket_learn.agent.policy
 from rocket_learn.agent.discrete_policy import DiscretePolicy
@@ -54,7 +49,7 @@ class RedisRolloutWorker:
      :param gamemode_weights: dict of dynamic gamemode choice weights. If None, default equal experience
     """
 
-    def __init__(self, redis: Redis, name: str, match: Match, matchmaker: BaseMatchmaker,
+    def __init__(self, redis: Redis, name: str, match, matchmaker: BaseMatchmaker,
                  evaluation_prob=0.01, sigma_target=1,
                  dynamic_gm=True, streamer_mode=False, send_gamestates=True,
                  send_obs=True, scoreboard=None, pretrained_agents: PretrainedAgents = None,
@@ -67,7 +62,7 @@ class RedisRolloutWorker:
                  step_size=100_000,
                  pipeline_limit_bytes=10_000_000,
                  gamemode_weight_ema_alpha=0.02,
-                 eval_setter=DefaultState(),
+                 eval_setter=None,
                  simulator=False,
                  dodge_deadzone=0.5,
                  live_progress=True,
@@ -80,7 +75,6 @@ class RedisRolloutWorker:
                  visualize=False,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
-        self.eval_setter = eval_setter
         self.redis = redis
         self.name = name
         self.rust_sim = rust_sim
@@ -172,14 +166,22 @@ class RedisRolloutWorker:
         match._state_setter = state_setter
         self.match = match
         if simulator and not rust_sim:
-            import rlgym_sim
+            import rlgym_sim.make
+            from rlgym_sim.envs import Match
+            from rlgym_sim.gym import Gym
+            from rlgym_sim.utils.state_setters import DefaultState
+            self.eval_setter = DefaultState()
             self.env = rlgym_sim.gym.Gym(match=self.match, copy_gamestate_every_step=True,
                                          dodge_deadzone=dodge_deadzone, tick_skip=tick_skip, gravity=1.0,
                                          boost_consumption=1.0)
+            if visualize:
+                self.env.render()
         elif rust_sim:
             # need rust gym here
             import spectrum
-
+            # TODO fix this for eval in Rust, or run them in python
+            from rlgym_sim.utils.state_setters import DefaultState
+            self.eval_setter = DefaultState()
             self.env = spectrum.GymWrapper(tick_skip=tick_skip,
                                            team_size=team_size,
                                            gravity=1.0,
@@ -193,6 +195,15 @@ class RedisRolloutWorker:
             # dodge_deadzone=dodge_deadzone,
             # seed=123)
             # self.set_team_size = self.env.set_team_size
+        else:
+            from rlgym.envs import Match
+            from rlgym.gamelaunch import LaunchPreference
+            from rlgym.gym import Gym
+            from rlgym.utils.state_setters import DefaultState
+            self.eval_setter = DefaultState()
+            self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
+                           use_injector=True, force_paging=force_paging, raise_on_crash=True,
+                           auto_minimize=auto_minimize)
         # # TODO Remove this
         # self.rust_sim = True
         self.total_steps_generated = 0
@@ -292,6 +303,7 @@ class RedisRolloutWorker:
                 self.current_agent = updated_agent
                 if self.streamer_mode and self.deterministic_streamer:
                     self.current_agent.deterministic = True
+            # self.current_agent.deterministic = True
 
             n += 1
 
