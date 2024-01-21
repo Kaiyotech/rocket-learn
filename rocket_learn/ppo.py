@@ -275,6 +275,14 @@ class PPO:
                         total_dict[key] = [x + y for x, y in zip(total_dict[key], value)]
                     else:
                         total_dict[key] = value
+                    if key in total_dict_blue:
+                        total_dict_blue[key] += sum(value[:mid]) / mid
+                    else:
+                        total_dict_blue[key] = sum(value[:mid]) / mid
+                    if key in total_dict_orange:
+                        total_dict_orange[key] += sum(value[mid:]) / mid
+                    else:
+                        total_dict_orange[key] = sum(value[mid:]) / mid
                 # to get average we need to weight the averages by steps
                 w_1 = current_steps / num_steps  # num_steps already includes current_steps
                 w_2 = (num_steps - current_steps) / num_steps
@@ -285,16 +293,16 @@ class PPO:
                         avg_dict[key] = value
 
                 # split into blue and orange
-                for key, value in total_dict.items():
-                    if key in total_dict_blue:
-                        total_dict_blue[key] += sum(value[:mid]) / mid
-                    else:
-                        total_dict_blue[key] = sum(value[:mid]) / mid
-                for key, value in total_dict.items():
-                    if key in total_dict_orange:
-                        total_dict_orange[key] += sum(value[mid:]) / mid
-                    else:
-                        total_dict_orange[key] = sum(value[mid:]) / mid
+                # for key, value in total_dict.items():
+                #     if key in total_dict_blue:
+                #         total_dict_blue[key] += sum(value[:mid]) / mid
+                #     else:
+                #         total_dict_blue[key] = sum(value[:mid]) / mid
+                # for key, value in total_dict.items():
+                #     if key in total_dict_orange:
+                #         total_dict_orange[key] += sum(value[mid:]) / mid
+                #     else:
+                #         total_dict_orange[key] = sum(value[mid:]) / mid
                 for key, value in avg_dict.items():
                     if key in avg_dict_blue:
                         avg_dict_blue[key] = avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1
@@ -314,9 +322,9 @@ class PPO:
         for key, value in total_dict.items():
             total_dict[key] = [x / num_files for x in total_dict[key]]
         for key, value in total_dict_blue.items():
-            total_dict_blue[key] = value / (num_files * num_files)
+            total_dict_blue[key] = value / num_files
         for key, value in total_dict_orange.items():
-            total_dict_orange[key] = value / (num_files * num_files)
+            total_dict_orange[key] = value / num_files
 
         # total_dict is the episode average, avg_dict is the per-step avg
         log_dict = {}
