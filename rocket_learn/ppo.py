@@ -316,7 +316,7 @@ class PPO:
         for key, value in total_dict_blue.items():
             total_dict_blue[key] = value / (num_files * num_files)
         for key, value in total_dict_orange.items():
-            total_dict_orange[key] = value / num_files
+            total_dict_orange[key] = value / (num_files * num_files)
 
         # total_dict is the episode average, avg_dict is the per-step avg
         log_dict = {}
