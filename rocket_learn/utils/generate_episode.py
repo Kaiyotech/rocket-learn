@@ -1,3 +1,4 @@
+import os
 from typing import List
 
 import numpy as np
@@ -17,7 +18,7 @@ import pickle
 
 
 def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
-                     progress=False, rust_sim=False, infinite_boost_odds=0,
+                     progress=False, rust_sim=False, infinite_boost_odds=0, streamer=False,
                      send_gamestates=False,
                      ) -> (
         List[ExperienceBuffer], int):
@@ -62,6 +63,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         else:
             info['state'] = None
         # observations = env.reset()
+    if streamer:
+        slider_string = ""
+        scoreboard_string = ""
 
     result = 0
 
@@ -163,6 +167,11 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             # all_actions = padded_actions
             # TEST OUT ABOVE TO DEAL WITH VARIABLE LENGTH
 
+            # print out scoreboard and sliders if streamer
+            if streamer:
+                stream_obs = observations[0][0][0]
+                (slider_string, scoreboard_string) = print_stream_info(slider_string, scoreboard_string, stream_obs) # noqa
+
             all_actions = np.vstack(all_actions)
             old_obs = observations
 
@@ -254,3 +263,41 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         progress.close()
 
     return rollouts, result
+
+
+def print_stream_info(slider_string, scoreboard_string, obs):
+    slider_range = range(61, 65)
+    slider_names = ['Speed', 'Aerial', 'Aggressive', 'Physical']
+    scoreboard_range = range(56, 61)
+    stream_dir = "C:\\Users\\kchin\\Code\\Kaiyotech\\Spectrum_play_redis\\stream_files\\"
+    time_remaining = round(obs[scoreboard_range.start] * 300)
+    score_diff = obs[scoreboard_range.start + 1] * 5
+    overtime = obs[scoreboard_range.start + 2]
+    new_score_string = f"Time Remain: {time_remaining}\nScore Diff: {round(score_diff):+}\nOT: {bool(round(overtime))}"
+    if scoreboard_string != new_score_string:
+        scoreboard_string = new_score_string
+        try:
+            filename = os.path.join(stream_dir, 'scoreboard.txt')
+            with open(filename, 'w') as f2:
+                f2.write(f"{scoreboard_string}")
+        except Exception as e:
+            print(f"Error writing to file: {e}")
+
+    new_slider_string = ""
+    strings_i = 0
+    for i in slider_range:
+        value = obs[i]
+        name = slider_names[strings_i]
+        strings_i += 1
+        new_slider_string += f"{name}: {value:.2f}"
+        if i != slider_range.stop - 1:
+            new_slider_string += "\n"
+    if slider_string != new_slider_string:
+        slider_string = new_slider_string
+        try:
+            filename = os.path.join(stream_dir, 'sliders.txt')
+            with open(filename, 'w') as f2:
+                f2.write(f"{slider_string}")
+        except Exception as e:
+            print(f"Error writing to file: {e}")
+    return slider_string, scoreboard_string

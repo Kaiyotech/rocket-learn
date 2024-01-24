@@ -401,7 +401,8 @@ class RedisRolloutWorker:
                         rust_sim=self.rust_sim,
                         progress=False,
                         send_gamestates=self.send_gamestates,
-                        infinite_boost_odds=self.infinite_boost_odds
+                        infinite_boost_odds=self.infinite_boost_odds,
+                        streamer=self.streamer_mode,
                     )
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
