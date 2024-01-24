@@ -30,7 +30,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         progress = None
     # TODO allow evaluate with rust later by providing these values or bypassing
     if evaluate:  # Change setup temporarily to play a normal game (approximately)
-        from game_condition import GameCondition  # tools is an optional dependency
+        from from_rlgym_or_tools.game_condition import GameCondition  # tools is an optional dependency
         terminals = env._match._terminal_conditions  # noqa
         reward = env._match._reward_fn  # noqa
         game_condition = GameCondition(seconds_per_goal_forfeit=10 * 3,  # noqa
