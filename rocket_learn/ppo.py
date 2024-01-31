@@ -75,7 +75,9 @@ class PPO:
             clip_frac_ki=0,
             clip_frac_kd=0,
             wandb_wait_btwn=5,
+            save_latest=False,
     ):
+        self.save_latest = save_latest
         self.rollout_generator = rollout_generator
         self.reward_logging_dir = reward_logging_dir
         # TODO let users choose their own agent
@@ -206,7 +208,8 @@ class PPO:
             iteration += 1
 
             if save_dir:
-                self.save(os.path.join(save_dir, self.logger.project + "_" + "latest"), -1, save_jit)
+                if self.save_latest:
+                    self.save(os.path.join(save_dir, self.logger.project + "_" + "latest"), -1, save_jit)
                 if iteration % iterations_per_save == 0:
                     self.save(current_run_dir, iteration, save_jit)  # noqa
 
@@ -503,7 +506,8 @@ class PPO:
             # this is mostly pulled from sb3
             indices = torch.randperm(returns_tensor.shape[0])[:self.batch_size]
             if isinstance(obs_tensor, tuple):
-                obs_batch = tuple(o[indices] for o in obs_tensor)
+                # obs_batch = tuple(o[indices] for o in obs_tensor)
+                obs_batch = tuple(obs_tensor[i][indices] for i in range(len(obs_tensor)))  # try to speed up
             else:
                 obs_batch = obs_tensor[indices]
             act_batch = act_tensor[indices]
@@ -613,11 +617,16 @@ class PPO:
 
         # update the LR to keep it within the clip fraction
         if self.target_clip_frac is not None:
-            orig_actor = self.agent.optimizer.param_groups[0]["lr"]
-            self.agent.optimizer.param_groups[0]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n, self.agent.optimizer.param_groups[0]["lr"])
-            self.agent.optimizer.param_groups[1]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n, self.agent.optimizer.param_groups[1]["lr"])
-            after_actor = self.agent.optimizer.param_groups[0]["lr"]
-            print(f"clipped {tot_clipped} and changed from {orig_actor} to {after_actor}")
+            if n == 0:
+                print("no good epochs. The LR were: {} and {}", self.agent.optimizer.param_groups[0]["lr"],
+                      self.agent.optimizer.param_groups[1]["lr"])
+            else:
+                orig_actor = self.agent.optimizer.param_groups[0]["lr"]
+                self.agent.optimizer.param_groups[0]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n, self.agent.optimizer.param_groups[0]["lr"])
+                # self.agent.optimizer.param_groups[1]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n, self.agent.optimizer.param_groups[1]["lr"])
+                self.agent.optimizer.param_groups[1]["lr"] = self.agent.optimizer.param_groups[0]["lr"]
+                after_actor = self.agent.optimizer.param_groups[0]["lr"]
+                print(f"clipped {tot_clipped} and changed from {orig_actor} to {after_actor}")
 
         t1 = time.perf_counter_ns()
 
