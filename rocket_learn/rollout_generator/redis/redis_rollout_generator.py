@@ -199,10 +199,11 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         return stats
 
     def generate_rollouts(self) -> Iterator[ExperienceBuffer]:
-        self.wasted_data = 0
-        self.new_data = 0
-        self.old_data = 0
+
         while True:
+            self.wasted_data = 0
+            self.new_data = 0
+            self.old_data = 0
             latest_version = int(self.redis.get(VERSION_LATEST))
             data = self.redis.blpop(ROLLOUTS)[1]
             self.tot_bytes += len(data)
