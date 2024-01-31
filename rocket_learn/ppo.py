@@ -181,16 +181,26 @@ class PPO:
 
             def _iter():
                 size = 0
+                wasted_data = 0
+                old_data = 0
+                new_data = 0
                 print(f"Collecting rollouts ({iteration})...")
                 while size < self.n_steps:
                     try:
                         rollout = next(rollout_gen)
+                        wasted_data += self.rollout_generator.wasted_data  # noqa
+                        old_data += self.rollout_generator.old_data  # noqa
+                        new_data += self.rollout_generator.new_data  # noqa
                         if rollout.size() > 0:
                             size += rollout.size()
                             # progress.update(rollout.size())
                             yield rollout
                     except StopIteration:
                         return
+                perc_old_data = old_data / (old_data + new_data)
+                self.logger.log({"ppo/%old_data": perc_old_data, "ppo/wasted_data": wasted_data},
+                                commit=False)
+                print(f"%old data: {perc_old_data}  --- wasted data: {wasted_data} ")
 
             self.calculate(_iter(), iteration)
             iteration += 1

@@ -85,6 +85,9 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         self.gamemodes = gamemodes
         self.stat_trackers = stat_trackers or []
         self._reset_stats()
+        self.wasted_data = 0
+        self.old_data = 0
+        self.new_data = 0
 
     @staticmethod
     def _process_rollout(rollout_bytes, latest_version, obs_build_func, rew_build_func, act_build_func, max_age):
@@ -95,7 +98,12 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             v, int) or v.startswith("-")]
 
         if any(version < 0 and abs(version - latest_version) > max_age for version in v_check):
-            return
+            return len(rollout_data[0][0])  # amount of wasted data
+
+        amount_old = sum([abs(version - latest_version) for version in v_check])
+        amount_old *= len(rollout_data[0][0])
+        amount_new = sum([version == latest_version for version in v_check])
+        amount_new *= len(rollout_data[0][0])
 
         if any(version < 0 for version in v_check):
             buffers, states = decode_buffers(rollout_data, versions, has_obs, has_states, has_rewards,
@@ -103,7 +111,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         else:
             buffers = states = [None] * len(v_check)
 
-        return buffers, states, versions, uuid, name, result
+        return buffers, states, versions, uuid, name, result, amount_new, amount_old
 
     def _update_ratings(self, name, versions, buffers, latest_version, result):
         ratings = []
@@ -191,6 +199,9 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         return stats
 
     def generate_rollouts(self) -> Iterator[ExperienceBuffer]:
+        self.wasted_data = 0
+        self.new_data = 0
+        self.old_data = 0
         while True:
             latest_version = int(self.redis.get(VERSION_LATEST))
             data = self.redis.blpop(ROLLOUTS)[1]
@@ -200,8 +211,11 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 self.obs_build_func, self.rew_func_factory, self.act_parse_factory,
                 self.max_age
             )
-            if res is not None:
-                buffers, states, versions, uuid, name, result = res
+
+            if type(res) is tuple:
+                buffers, states, versions, uuid, name, result, amt_new, amt_old = res
+                self.new_data += amt_new
+                self.old_data += amt_old
                 # versions = [version for version in versions if version != 'na']  # don't track humans or hardcoded
 
                 relevant_buffers = self._update_ratings(
@@ -209,6 +223,10 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 if len(relevant_buffers) > 0:
                     self._update_stats(states, [b in relevant_buffers for b in buffers])
                 yield from relevant_buffers
+            else:
+                self.wasted_data += res
+
+
 
     def _plot_ratings(self, iteration):
         fig_data = []
