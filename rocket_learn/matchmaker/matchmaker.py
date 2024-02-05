@@ -83,7 +83,7 @@ class Matchmaker(BaseMatchmaker):
         # This is a training match with all latest agents, no further logic necessary
         if not evaluate and n_non_latest == 0:
             # rating = get_rating(gamemode, latest_key, redis)
-            rating = Rating(0, 0)  # not making a redis call just to print a rating that I don't look at anyway
+            rating = Rating(10, 10)  # not making a redis call just to print a rating that I don't look at anyway
             return [latest_version] * n_agents, [rating] * n_agents, False, n_agents // 2, n_agents // 2
 
         latest_id = redis.get(LATEST_RATING_ID).decode("utf-8")
