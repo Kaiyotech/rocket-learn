@@ -6,6 +6,7 @@ from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
 from rocket_learn.rollout_generator.redis.utils import get_rating, get_ratings, get_pretrained_ratings, LATEST_RATING_ID
 from rocket_learn.utils.util import probability_NvsM
 from rocket_learn.agent.types import PretrainedAgents
+from trueskill import Rating
 
 
 class Matchmaker(BaseMatchmaker):
@@ -82,7 +83,7 @@ class Matchmaker(BaseMatchmaker):
         # This is a training match with all latest agents, no further logic necessary
         if not evaluate and n_non_latest == 0:
             # rating = get_rating(gamemode, latest_key, redis)
-            rating = "None"  # not making a redis call just to print a rating that I don't look at anyway
+            rating = Rating(0, 0)  # not making a redis call just to print a rating that I don't look at anyway
             return [latest_version] * n_agents, [rating] * n_agents, False, n_agents // 2, n_agents // 2
 
         latest_id = redis.get(LATEST_RATING_ID).decode("utf-8")
