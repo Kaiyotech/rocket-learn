@@ -79,6 +79,8 @@ class RedisRolloutWorker:
         self.name = name
         self.rust_sim = rust_sim
 
+        self.available_version = None
+
         self.matchmaker = matchmaker
 
         self.infinite_boost_odds = infinite_boost_odds
@@ -135,7 +137,7 @@ class RedisRolloutWorker:
         self.redis.rpush(WORKER_IDS, self.uuid)
 
         self.batch_mode = batch_mode
-        self.step_size_limit = min(step_size / 20, 25_000)
+        self.step_size_limit = min(step_size / 20, 10_000)
         if self.batch_mode:
             self.red_pipe = self.redis.pipeline()
             self.step_last_send = 0
@@ -286,7 +288,11 @@ class RedisRolloutWorker:
         # t.start()
         while True:
             # Get the most recent version available
-            available_version = self.redis.get(VERSION_LATEST)
+            # in batch mode this is done in the pipeline when sending rollouts
+            if not self.batch_mode or self.available_version is None:
+                available_version = self.redis.get(VERSION_LATEST)
+            else:
+                available_version = self.available_version
             if available_version is None:
                 time.sleep(1)
                 continue  # Wait for version to be published (not sure if this is necessary?)
@@ -425,7 +431,7 @@ class RedisRolloutWorker:
                     old_exp = self.mean_exp_grant[f"{blue}v{orange}"]
                     self.mean_exp_grant[f"{blue}v{orange}"] = (
                                                                       (
-                                                                                  episode_exp - old_exp) * self.ema_alpha) + old_exp
+                                                                              episode_exp - old_exp) * self.ema_alpha) + old_exp
                 post_stats = f"Rollout finished after {len(rollouts[0].observations)} steps ({self.total_steps_generated} total steps), result was {str_result}"
                 if result != 0:
                     post_stats += f", goal speed: {goal_speed:.2f} kph"
@@ -478,9 +484,12 @@ class RedisRolloutWorker:
                 #  def send():
                 if (self.total_steps_generated - self.step_last_send) > self.step_size_limit or \
                         len(self.red_pipe) > 100 or self.pipeline_size > self.pipeline_limit:
-                    n_items = self.red_pipe.execute()
+                    self.red_pipe.get(VERSION_LATEST)
+                    result = self.red_pipe.execute()
+                    n_items = result[-2]
+                    self.available_version = result[-1]
                     self.pipeline_size = 0
-                    if n_items[-1] >= 1000:
+                    if n_items >= 1000:
                         print(
                             "Had to limit rollouts. Learner may have have crashed, or is overloaded")
                         self.redis.ltrim(ROLLOUTS, -100, -1)

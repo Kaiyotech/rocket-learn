@@ -73,8 +73,7 @@ class Matchmaker(BaseMatchmaker):
         per_team = n_agents // 2
         gamemode = f"{per_team}v{per_team}"
         gamemode = '1v0' if gamemode == '0v0' else gamemode
-        latest_id = redis.get(LATEST_RATING_ID).decode("utf-8")
-        latest_key = f"{latest_id}-stochastic"
+
 
         # This is the version of the most recent model (NOT just eval models)
         # Doing this instead of int(redis.get(VERSION_LATEST)) because the latest model is whatever is currently in rollout worker
@@ -82,9 +81,12 @@ class Matchmaker(BaseMatchmaker):
 
         # This is a training match with all latest agents, no further logic necessary
         if not evaluate and n_non_latest == 0:
-            rating = get_rating(gamemode, latest_key, redis)
+            # rating = get_rating(gamemode, latest_key, redis)
+            rating = "None"  # not making a redis call just to print a rating that I don't look at anyway
             return [latest_version] * n_agents, [rating] * n_agents, False, n_agents // 2, n_agents // 2
 
+        latest_id = redis.get(LATEST_RATING_ID).decode("utf-8")
+        latest_key = f"{latest_id}-stochastic"
         past_version_ratings = get_ratings(gamemode, redis)
         # This is the rating of the most recent eval model
         latest_rating = past_version_ratings[latest_key]
