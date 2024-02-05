@@ -51,6 +51,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         self.name = name
         self.tot_bytes = 0
         self.redis = redis
+        self.red_pipe = self.redis.pipeline()
         self.logger = logger
         self.pretrained_agents_keys = []
         if pretrained_agents is not None:
@@ -204,28 +205,34 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             self.wasted_data = 0
             self.new_data = 0
             self.old_data = 0
-            latest_version = int(self.redis.get(VERSION_LATEST))
-            data = self.redis.blpop(ROLLOUTS)[1]
-            self.tot_bytes += len(data)
-            res = self._process_rollout(
-                data, latest_version,
-                self.obs_build_func, self.rew_func_factory, self.act_parse_factory,
-                self.max_age
-            )
+            latest_version = self.redis.get(VERSION_LATEST)
+            latest_version = int(latest_version)
+            # self.red_pipe.blpop(ROLLOUTS)
+            result = self.redis.blmpop(0, 1, ROLLOUTS, direction='RIGHT', count=100) # take up to 100 results at once
+            # result = self.red_pipe.execute()
+            # latest_version = int(result[0])
+            data_list = result[1]
+            for data in data_list:
+                self.tot_bytes += len(data)
+                res = self._process_rollout(
+                    data, latest_version,
+                    self.obs_build_func, self.rew_func_factory, self.act_parse_factory,
+                    self.max_age
+                )
 
-            if type(res) is tuple:
-                buffers, states, versions, uuid, name, result, amt_new, amt_old = res
-                self.new_data += amt_new
-                self.old_data += amt_old
-                # versions = [version for version in versions if version != 'na']  # don't track humans or hardcoded
+                if type(res) is tuple:
+                    buffers, states, versions, uuid, name, result, amt_new, amt_old = res
+                    self.new_data += amt_new
+                    self.old_data += amt_old
+                    # versions = [version for version in versions if version != 'na']  # don't track humans or hardcoded
 
-                relevant_buffers = self._update_ratings(
-                    name, versions, buffers, latest_version, result)
-                if len(relevant_buffers) > 0:
-                    self._update_stats(states, [b in relevant_buffers for b in buffers])
-                yield from relevant_buffers
-            else:
-                self.wasted_data += res
+                    relevant_buffers = self._update_ratings(
+                        name, versions, buffers, latest_version, result)
+                    if len(relevant_buffers) > 0:
+                        self._update_stats(states, [b in relevant_buffers for b in buffers])
+                    yield from relevant_buffers
+                else:
+                    self.wasted_data += res
 
 
 
