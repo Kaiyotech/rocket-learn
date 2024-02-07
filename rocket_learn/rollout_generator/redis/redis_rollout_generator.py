@@ -100,11 +100,12 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
 
         if any(version < 0 and abs(version - latest_version) > max_age for version in v_check):
             return len(rollout_data[0][0])  # amount of wasted data
-
-        amount_old = sum([abs(version - latest_version) for version in v_check])
-        amount_old *= len(rollout_data[0][0])
-        amount_new = sum([version == latest_version for version in v_check])
-        amount_new *= len(rollout_data[0][0])
+        amount_old = 0
+        amount_new = 0
+        if v_check[0] == latest_version:
+            amount_new = len(rollout_data[0][0])
+        else:
+            amount_old = abs(v_check[0] - latest_version) * len(rollout_data[0][0])  # if 2 models old, then 2 * length
 
         if any(version < 0 for version in v_check):
             buffers, states = decode_buffers(rollout_data, versions, has_obs, has_states, has_rewards,
@@ -202,17 +203,17 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
     def generate_rollouts(self) -> Iterator[ExperienceBuffer]:
 
         while True:
-            self.wasted_data = 0
-            self.new_data = 0
-            self.old_data = 0
             latest_version = self.redis.get(VERSION_LATEST)
             latest_version = int(latest_version)
             # self.red_pipe.blpop(ROLLOUTS)
-            result = self.redis.blmpop(0, 1, ROLLOUTS, direction='RIGHT', count=100) # take up to 100 results at once
+            result = self.redis.blmpop(0, 1, ROLLOUTS, direction='RIGHT', count=50)  # take up to 100 results at once
             # result = self.red_pipe.execute()
             # latest_version = int(result[0])
             data_list = result[1]
             for data in data_list:
+                self.wasted_data = 0
+                self.new_data = 0
+                self.old_data = 0
                 self.tot_bytes += len(data)
                 res = self._process_rollout(
                     data, latest_version,
@@ -222,8 +223,8 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
 
                 if type(res) is tuple:
                     buffers, states, versions, uuid, name, result, amt_new, amt_old = res
-                    self.new_data += amt_new
-                    self.old_data += amt_old
+                    self.new_data = amt_new
+                    self.old_data = amt_old
                     # versions = [version for version in versions if version != 'na']  # don't track humans or hardcoded
 
                     relevant_buffers = self._update_ratings(
@@ -232,7 +233,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                         self._update_stats(states, [b in relevant_buffers for b in buffers])
                     yield from relevant_buffers
                 else:
-                    self.wasted_data += res
+                    self.wasted_data = res
 
 
 
