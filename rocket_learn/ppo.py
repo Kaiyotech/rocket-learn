@@ -500,8 +500,8 @@ class PPO:
             # this is mostly pulled from sb3
             indices = torch.randperm(returns_tensor.shape[0])[:self.batch_size]
             if isinstance(obs_tensor, tuple):
-                # obs_batch = tuple(o[indices] for o in obs_tensor)
-                obs_batch = tuple(obs_tensor[i][indices] for i in range(len(obs_tensor)))  # try to speed up
+                obs_batch = tuple(o[indices] for o in obs_tensor)
+                # obs_batch = tuple(obs_tensor[i][indices] for i in range(len(obs_tensor)))  # try to speed up
             else:
                 obs_batch = obs_tensor[indices]
             act_batch = act_tensor[indices]

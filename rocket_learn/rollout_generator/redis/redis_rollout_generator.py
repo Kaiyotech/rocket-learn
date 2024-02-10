@@ -102,10 +102,11 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             return len(rollout_data[0][0])  # amount of wasted data
         amount_old = 0
         amount_new = 0
-        if v_check[0] == latest_version:
-            amount_new = len(rollout_data[0][0])
-        else:
-            amount_old = abs(v_check[0] - latest_version) * len(rollout_data[0][0])  # if 2 models old, then 2 * length
+        if len(rollout_data[0]) > 0:
+            if v_check[0] == latest_version:
+                amount_new = len(rollout_data[0][0])
+            else:
+                amount_old = abs(v_check[0] - latest_version) * len(rollout_data[0][0])  # if 2 models old, then 2 * length
 
         if any(version < 0 for version in v_check):
             buffers, states = decode_buffers(rollout_data, versions, has_obs, has_states, has_rewards,
