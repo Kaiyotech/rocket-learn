@@ -272,6 +272,9 @@ class PPO:
         total_dict_orange = {}
         avg_dict_blue = {}
         avg_dict_orange = {}
+        # require minimum number of files
+        if len(files) < 50:
+            return
         for file in files:
             num_files += 1
             try:
@@ -306,26 +309,17 @@ class PPO:
                         avg_dict[key] = value
 
                 # split into blue and orange
-                # for key, value in total_dict.items():
-                #     if key in total_dict_blue:
-                #         total_dict_blue[key] += sum(value[:mid]) / mid
-                #     else:
-                #         total_dict_blue[key] = sum(value[:mid]) / mid
-                # for key, value in total_dict.items():
-                #     if key in total_dict_orange:
-                #         total_dict_orange[key] += sum(value[mid:]) / mid
-                #     else:
-                #         total_dict_orange[key] = sum(value[mid:]) / mid
-                for key, value in avg_dict.items():
-                    if key in avg_dict_blue:
-                        avg_dict_blue[key] = avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1
-                    else:
-                        avg_dict_blue[key] = sum(value[:mid]) / mid
-                for key, value in avg_dict.items():
-                    if key in avg_dict_orange:
-                        avg_dict_orange[key] = avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1
-                    else:
-                        avg_dict_orange[key] = sum(value[mid:]) / mid
+                if data.get("kickoff"):
+                    for key, value in avg_dict.items():
+                        if key in avg_dict_blue:
+                            avg_dict_blue[key] = avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1
+                        else:
+                            avg_dict_blue[key] = sum(value[:mid]) / mid
+                    for key, value in avg_dict.items():
+                        if key in avg_dict_orange:
+                            avg_dict_orange[key] = avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1
+                        else:
+                            avg_dict_orange[key] = sum(value[mid:]) / mid
                 fh.close()
                 os.unlink(file)
             except JSONDecodeError:
