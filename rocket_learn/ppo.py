@@ -308,18 +308,18 @@ class PPO:
                     if key in avg_dict:
                         avg_dict[key] = (avg_dict[key] * w_2 + sum(value) * w_1) / num_players
                     else:
-                        avg_dict[key] = (avg_dict[key] * w_2 + sum(value) * w_1) / num_players
+                        avg_dict[key] = sum(value) / num_players
 
                 # split into blue and orange
                     if data.get("kickoff"):
                         if key in avg_dict_blue:
-                            avg_dict_blue[key] = (avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1) / num_players
+                            avg_dict_blue[key] = (avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1)
                         else:
-                            avg_dict_blue[key] = (sum(value[:mid]) / mid) / num_players
+                            avg_dict_blue[key] = (sum(value[:mid]) / mid)
                         if key in avg_dict_orange:
-                            avg_dict_orange[key] = (avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1) / num_players
+                            avg_dict_orange[key] = (avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1)
                         else:
-                            avg_dict_orange[key] = (sum(value[mid:]) / mid) / num_players
+                            avg_dict_orange[key] = (sum(value[mid:]) / mid)
                 fh.close()
                 os.unlink(file)
             except JSONDecodeError:
