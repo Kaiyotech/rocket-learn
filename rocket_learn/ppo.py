@@ -327,7 +327,7 @@ class PPO:
 
         # divide the sum by number of episodes/aka files
         for key, value in total_dict.items():
-            total_dict[key] = [x / num_files for x in total_dict[key]]
+            total_dict[key] = value / num_files
         for key, value in total_dict_blue.items():
             total_dict_blue[key] = value / num_files
         for key, value in total_dict_orange.items():
@@ -341,9 +341,9 @@ class PPO:
         # log_dict.update(
         #     {f"rewards_step_ind/{key}_{i}": val for key, values in avg_dict.items() for i, val in enumerate(values)})
         for key, value in total_dict.items():
-            log_dict.update({f"rewards_ep/{key}": sum(value) / len(value)})
+            log_dict.update({f"rewards_ep/{key}": value})
         for key, value in avg_dict.items():
-            log_dict.update({f"rewards_step/{key}": sum(value) / len(value)})
+            log_dict.update({f"rewards_step/{key}": value})
         for key, value in total_dict_blue.items():
             log_dict.update({f"rewards_ep_team/{key}_blue": value})
         for key, value in total_dict_orange.items():
