@@ -286,40 +286,40 @@ class PPO:
                 num_players = data.get("num_players")
                 mid = num_players // 2
                 # just sum all of the sums and then divide by num_files later to get average episode total
+                # divide by number of players
                 for key, value in data.get("RewardSum").items():
                     if key in total_dict:
-                        total_dict[key] = [x + y for x, y in zip(total_dict[key], value)]
+                        total_dict[key] += sum(value) / num_players
                     else:
-                        total_dict[key] = value
-                    if key in total_dict_blue:
-                        total_dict_blue[key] += sum(value[:mid]) / mid
-                    else:
-                        total_dict_blue[key] = sum(value[:mid]) / mid
-                    if key in total_dict_orange:
-                        total_dict_orange[key] += sum(value[mid:]) / mid
-                    else:
-                        total_dict_orange[key] = sum(value[mid:]) / mid
+                        total_dict[key] = sum(value) / num_players
+                    if data.get("kickoff"):
+                        if key in total_dict_blue:
+                            total_dict_blue[key] += (sum(value[:mid]) / mid) / num_players
+                        else:
+                            total_dict_blue[key] = (sum(value[:mid]) / mid) / num_players
+                        if key in total_dict_orange:
+                            total_dict_orange[key] += (sum(value[mid:]) / mid) / num_players
+                        else:
+                            total_dict_orange[key] = (sum(value[mid:]) / mid) / num_players
                 # to get average we need to weight the averages by steps
                 w_1 = current_steps / num_steps  # num_steps already includes current_steps
                 w_2 = (num_steps - current_steps) / num_steps
                 for key, value in data.get("RewardAvg").items():
                     if key in avg_dict:
-                        avg_dict[key] = [x * w_2 + y * w_1 for x, y in zip(avg_dict[key], value)]
+                        avg_dict[key] = (avg_dict[key] * w_2 + sum(value) * w_1) / num_players
                     else:
-                        avg_dict[key] = value
+                        avg_dict[key] = (avg_dict[key] * w_2 + sum(value) * w_1) / num_players
 
                 # split into blue and orange
-                if data.get("kickoff"):
-                    for key, value in avg_dict.items():
+                    if data.get("kickoff"):
                         if key in avg_dict_blue:
-                            avg_dict_blue[key] = avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1
+                            avg_dict_blue[key] = (avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1) / num_players
                         else:
-                            avg_dict_blue[key] = sum(value[:mid]) / mid
-                    for key, value in avg_dict.items():
+                            avg_dict_blue[key] = (sum(value[:mid]) / mid) / num_players
                         if key in avg_dict_orange:
-                            avg_dict_orange[key] = avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1
+                            avg_dict_orange[key] = (avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1) / num_players
                         else:
-                            avg_dict_orange[key] = sum(value[mid:]) / mid
+                            avg_dict_orange[key] = (sum(value[mid:]) / mid) / num_players
                 fh.close()
                 os.unlink(file)
             except JSONDecodeError:
