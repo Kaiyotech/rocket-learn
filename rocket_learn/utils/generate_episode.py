@@ -63,9 +63,12 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         else:
             info['state'] = None
         # observations = env.reset()
+    sliders = None
     if streamer:
         slider_string = ""
         scoreboard_string = ""
+        # get sliders from file on reset, None if doesn't exist
+        sliders = get_sliders()
 
     result = 0
 
@@ -170,6 +173,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             # print out scoreboard and sliders if streamer
             if streamer:
                 stream_obs = observations[0][0][0]
+                if sliders is not None:
+                    slider_range = range(61, 65)
+                    stream_obs[slider_range] = sliders
                 (slider_string, scoreboard_string) = print_stream_info(slider_string, scoreboard_string, stream_obs) # noqa
 
             all_actions = np.vstack(all_actions)
@@ -301,3 +307,23 @@ def print_stream_info(slider_string, scoreboard_string, obs):
         except Exception as e:
             print(f"Error writing to file: {e}")
     return slider_string, scoreboard_string
+
+
+def get_sliders():
+    slider_file = "C:\\Users\\kchin\\Code\\Kaiyotech\\Spectrum_play_redis\\stream_files\\set_sliders.txt"
+    try:
+        with open(slider_file, 'r+') as fh:
+            slider_values = fh.readline()
+            slider_values = slider_values.split("!setsliders")[1].strip()
+            if slider_values.startswith("used"):
+                slider_values = None
+                return slider_values
+            slider_values = slider_values.split(',')
+            for (i, value) in enumerate(slider_values):
+                slider_values[i] = float(value)  # noqa
+            fh.seek(0, 0)
+            fh.write("used\n")
+            return slider_values
+    except Exception as e:
+        print(f"Error reading slider file: {e}")
+        return
