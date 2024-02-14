@@ -310,11 +310,11 @@ def print_stream_info(slider_string, scoreboard_string, obs):
 
 
 def get_sliders():
-    slider_file = "C:\\Users\\kchin\\Code\\Kaiyotech\\Spectrum_play_redis\\stream_files\\set_sliders.txt"
+    slider_file = "C:\\Users\\kchin\\Code\\Kaiyotech\\Spectrum_play_redis\\stream_files\\set_sliders_blue.txt"
     try:
         with open(slider_file, 'r+') as fh:
             slider_values = fh.readline()
-            slider_values = slider_values.split("!setsliders")[1].strip()
+            slider_values = slider_values.split("!setslidersblue")[1].strip()
             if slider_values.startswith("used"):
                 slider_values = None
                 return slider_values
