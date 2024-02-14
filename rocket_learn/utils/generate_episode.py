@@ -316,14 +316,14 @@ def get_sliders():
             slider_values = fh.readline()
             slider_values = slider_values.split("!setslidersblue")[1].strip()
             if slider_values.startswith("used"):
-                slider_values = None
-                return slider_values
+                return None
             slider_values = slider_values.split(',')
+            if len(slider_values) != 4:
+                return None
             for (i, value) in enumerate(slider_values):
-                slider_values[i] = float(value)  # noqa
+                slider_values[i] = min(max(float(value), -10), 10)  # noqa
             fh.seek(0, 0)
             fh.write("used\n")
             return slider_values
     except Exception as e:
-        print(f"Error reading slider file: {e}")
-        return
+        print(f"Error reading slider values: {e}")
