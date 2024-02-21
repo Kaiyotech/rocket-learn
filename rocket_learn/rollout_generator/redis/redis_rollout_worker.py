@@ -389,7 +389,7 @@ class RedisRolloutWorker:
                                                                               scoreboard=self.scoreboard,
                                                                               progress=self.live_progress,
                                                                               rust_sim=self.rust_sim,
-                                                                              infinite_boost_odds=0
+                                                                              infinite_boost_odds=0,
                                                                               # eval_setter=self.eval_setter,
                                                                               )
                 rollouts = []
