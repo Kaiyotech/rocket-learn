@@ -52,13 +52,11 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
     if scoreboard is not None:
         random_resets = scoreboard.random_resets
         scoreboard.random_resets = not evaluate
-    if any(isinstance(policy, HardcodedAgent) for policy in policies):
-        # we have pretrained models that need gamestate
-        send_gamestates = True
+    # TODO make rust binding
     if not rust_sim:
         observations, info = env.reset(return_info=True)
     else:
-        observations, state = env.reset(len(policies) // 2, infinite_boost_odds=infinite_boost_odds, send_gamestate=send_gamestates)
+        observations, state = env.reset(len(policies) // 2, infinite_boost_odds=infinite_boost_odds)
         info = {'result': 0.0}
         if send_gamestates:
             info['state'] = make_python_state(state)
@@ -132,9 +130,6 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             else:
                 index = 0
                 for policy, obs in zip(policies, observations):
-                    # if isinstance(obs, tuple):
-                    #     obs = tuple(np.concatenate([obs[i] for obs in observations], axis=0)
-                    #                 for i in range(len(observations[0])))
                     if isinstance(policy, HardcodedAgent):
                         actions = policy.act(last_state, index)
 
@@ -164,14 +159,16 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                         assert False
 
                     index += 1
-                # pad because of pretrained
-                length = max([a.shape[0] for a in all_actions])
-                padded_actions = []
-                for a in all_actions:
-                    action = np.pad(a.astype('float64'), (0, length - a.size), 'constant', constant_values=np.NAN)
-                    padded_actions.append(action)
 
-                all_actions = padded_actions
+            # to allow different action spaces, pad out short ones to longest length (assume later unpadding in parser)
+            # length = max([a.shape[0] for a in all_actions])
+            # padded_actions = []
+            # for a in all_actions:
+            #     action = np.pad(a.astype('float64'), (0, length - a.size), 'constant', constant_values=np.NAN)
+            #     padded_actions.append(action)
+            #
+            # all_actions = padded_actions
+            # TEST OUT ABOVE TO DEAL WITH VARIABLE LENGTH
 
             # print out scoreboard and sliders if streamer
             if streamer:
