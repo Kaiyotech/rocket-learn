@@ -72,8 +72,8 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 self.redis.delete(ROLLOUTS)
             self.redis.decr(VERSION_LATEST,
                             max_age + 1)  # In case of reload from old version, don't let current seep in
-        total_timesteps = int(_unserialize(self.redis.get(TOTAL_TIMESTEPS)))
-        total_timesteps = 0 if total_timesteps is None else total_timesteps
+        total_timesteps = self.redis.get(TOTAL_TIMESTEPS)
+        total_timesteps = 0 if total_timesteps is None else int(_unserialize(total_timesteps))
         self.set_reward_stage(total_timesteps)
 
         # self.redis.set(SAVE_FREQ, save_every)
