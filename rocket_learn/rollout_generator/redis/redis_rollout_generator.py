@@ -17,10 +17,11 @@ from trueskill import Rating, rate, SIGMA
 from rocket_learn.agent.types import PretrainedAgents
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGenerator
-from rocket_learn.rollout_generator.redis.utils import decode_buffers, _unserialize, PRETRAINED_QUALITIES, QUALITIES, _serialize, ROLLOUTS, \
+from rocket_learn.rollout_generator.redis.utils import decode_buffers, _unserialize, PRETRAINED_QUALITIES, QUALITIES, \
+    _serialize, ROLLOUTS, \
     VERSION_LATEST, OPPONENT_MODELS, CONTRIBUTORS, N_UPDATES, MODEL_LATEST, _serialize_model, get_rating, get_ratings, \
     get_pretrained_rating, get_pretrained_ratings, add_pretrained_ratings, _ALL, LATEST_RATING_ID, EXPERIENCE_PER_MODE, \
-    TOTAL_TIMESTEPS
+    TOTAL_TIMESTEPS, REWARD_STAGE
 from rocket_learn.utils.stat_trackers.stat_tracker import StatTracker
 
 
@@ -71,6 +72,8 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 self.redis.delete(ROLLOUTS)
             self.redis.decr(VERSION_LATEST,
                             max_age + 1)  # In case of reload from old version, don't let current seep in
+        total_timesteps = int(_unserialize(self.redis.get(TOTAL_TIMESTEPS)))
+        self.set_reward_stage(total_timesteps)
 
         # self.redis.set(SAVE_FREQ, save_every)
         # self.redis.set(MODEL_FREQ, model_every)
@@ -433,6 +436,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             self.logger.log({f"stat/{name}": value for name,
                             value in self._get_stats().items()}, commit=False, step=iteration)
         self._reset_stats()
+        self.set_reward_stage(total_timesteps)
 
         if n_updates % self.model_freq == 0:
             print("Adding model to pool...")
@@ -448,3 +452,11 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 self.redis.bgsave()
             except ResponseError:
                 print("redis bgsave failed, auto save already in progress")
+
+    def set_reward_stage(self, total_timesteps):
+        if total_timesteps < 450_000_000:
+            self.redis.set(REWARD_STAGE, 0)
+        elif total_timesteps >= 450_000_000:
+            self.redis.set(REWARD_STAGE, 1)
+        elif total_timesteps >= 1_500_000_000:
+            self.redis.set(REWARD_STAGE, 2)

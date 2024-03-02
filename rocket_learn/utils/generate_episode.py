@@ -19,7 +19,7 @@ import pickle
 
 def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
                      progress=False, rust_sim=False, infinite_boost_odds=0, streamer=False,
-                     send_gamestates=False,
+                     send_gamestates=False, reward_stage=0,
                      ) -> (
         List[ExperienceBuffer], int):
     """
@@ -58,7 +58,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
     if not rust_sim:
         observations, info = env.reset(return_info=True)
     else:
-        observations, state = env.reset(len(policies) // 2, infinite_boost_odds=infinite_boost_odds, send_gamestate=send_gamestates)
+        observations, state = env.reset(len(policies) // 2, infinite_boost_odds=infinite_boost_odds,
+                                        send_gamestate=send_gamestates,
+                                        reward_stage=reward_stage)
         info = {'result': 0.0}
         if send_gamestates:
             info['state'] = make_python_state(state)

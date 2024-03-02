@@ -21,7 +21,7 @@ import rocket_learn.utils.generate_episode
 from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
 from rocket_learn.rollout_generator.redis.utils import _unserialize_model, MODEL_LATEST, WORKER_IDS, OPPONENT_MODELS, \
     VERSION_LATEST, _serialize, ROLLOUTS, encode_buffers, decode_buffers, get_rating, get_ratings, LATEST_RATING_ID, \
-    EXPERIENCE_PER_MODE
+    EXPERIENCE_PER_MODE, REWARD_STAGE
 from rocket_learn.utils.util import probability_NvsM
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
@@ -143,6 +143,7 @@ class RedisRolloutWorker:
             self.step_last_send = 0
         self.pipeline_size = 0
         self.pipeline_limit = pipeline_limit_bytes  # 10 MB is default
+        self.reward_stage = 0
 
         # currently doesn't rebuild, if the old is there, reuse it.
         if self.local_cache_name:
@@ -409,6 +410,7 @@ class RedisRolloutWorker:
                         send_gamestates=self.send_gamestates,
                         infinite_boost_odds=self.infinite_boost_odds,
                         streamer=self.streamer_mode,
+                        reward_stage=self.reward_stage,
                     )
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
@@ -485,9 +487,11 @@ class RedisRolloutWorker:
                 if (self.total_steps_generated - self.step_last_send) > self.step_size_limit or \
                         len(self.red_pipe) > 100 or self.pipeline_size > self.pipeline_limit:
                     self.red_pipe.get(VERSION_LATEST)
+                    self.red_pipe.get(REWARD_STAGE)
                     result = self.red_pipe.execute()
-                    n_items = result[-2]
-                    self.available_version = result[-1]
+                    n_items = result[-3]
+                    self.available_version = result[-2]
+                    self.reward_stage = result[-1]
                     self.pipeline_size = 0
                     if n_items >= 1000:
                         print(
