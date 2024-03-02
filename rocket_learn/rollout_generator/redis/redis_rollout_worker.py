@@ -21,7 +21,7 @@ import rocket_learn.utils.generate_episode
 from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
 from rocket_learn.rollout_generator.redis.utils import _unserialize_model, MODEL_LATEST, WORKER_IDS, OPPONENT_MODELS, \
     VERSION_LATEST, _serialize, ROLLOUTS, encode_buffers, decode_buffers, get_rating, get_ratings, LATEST_RATING_ID, \
-    EXPERIENCE_PER_MODE, REWARD_STAGE
+    EXPERIENCE_PER_MODE, REWARD_STAGE, _unserialize
 from rocket_learn.utils.util import probability_NvsM
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
@@ -491,7 +491,7 @@ class RedisRolloutWorker:
                     result = self.red_pipe.execute()
                     n_items = result[-3]
                     self.available_version = result[-2]
-                    self.reward_stage = result[-1]
+                    self.reward_stage = int(result[-1])
                     self.pipeline_size = 0
                     if n_items >= 1000:
                         print(
