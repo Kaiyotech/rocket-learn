@@ -455,9 +455,9 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
                 print("redis bgsave failed, auto save already in progress")
 
     def set_reward_stage(self, total_timesteps):
-        if total_timesteps >= 3_000_000_000:
+        if total_timesteps >= 5_000_000_000:
             self.redis.set(REWARD_STAGE, 3)
-        elif total_timesteps >= 1_500_000_000:
+        elif total_timesteps >= 2_750_000_000:
             self.redis.set(REWARD_STAGE, 2)
         elif total_timesteps >= 450_000_000:
             self.redis.set(REWARD_STAGE, 1)
