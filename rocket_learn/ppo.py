@@ -262,7 +262,7 @@ class PPO:
 
     def log_rewards(self, iteration):
         # need to read all of the json in the directory, handle them, delete them
-        #
+        # adding the stats for sliders
         files = os.listdir(self.reward_logging_dir)
         num_files = 0
         num_steps = 0
@@ -272,6 +272,7 @@ class PPO:
         total_dict_orange = {}
         avg_dict_blue = {}
         avg_dict_orange = {}
+        slider_pairs = {}
         # require minimum number of files
         if len(files) < 50:
             return
@@ -320,6 +321,19 @@ class PPO:
                             avg_dict_orange[key] = (avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1)
                         else:
                             avg_dict_orange[key] = (sum(value[mid:]) / mid)
+                sliders = data.get("sliders")
+                stats = data.get("Stats")
+                for category in sliders.keys():
+                    if category in stats.keys():
+                        pairs = list(zip(sliders[category], stats[category]))
+                        if category in slider_pairs:
+                            slider_pairs[category].extend(pairs)
+                        else:
+                            slider_pairs[category] = pairs
+                    else:
+                        print(f"Error: Missing slider category {category} in stats")
+                        exit(1)
+
                 fh.close()
                 os.unlink(file)
             except JSONDecodeError:
@@ -332,6 +346,25 @@ class PPO:
             total_dict_blue[key] = value / num_files
         for key, value in total_dict_orange.items():
             total_dict_orange[key] = value / num_files
+
+        # thanks to WaddlestheTimePig for this idea
+        # p = np.polyfit(slider_vals, ep_rew_avgs, 1)
+        # fit = np.poly1d(p)(slider_vals)
+        #
+        # # Log these two values
+        # fit_slope = p[0]
+        # res_std = np.std(ep_rew_avgs - fit)
+        slopes = {}
+        stds = {}
+        for key in slider_pairs:
+            pairs = np.asarray(slider_pairs[key])
+            # Example usage of `numpy.polyfit` for "Speed" pairs (assuming you want to fit a 1st degree polynomial)
+            sliders = pairs[:, 0]
+            stats = pairs[:, 1]
+            p = np.polyfit(sliders, stats, 1)
+            fit = np.poly1d(p)(sliders)
+            slopes[key] = p[0]
+            stds[key] = np.std(stats - fit)
 
         # total_dict is the episode average, avg_dict is the per-step avg
         log_dict = {}
@@ -352,6 +385,10 @@ class PPO:
             log_dict.update({f"rewards_step_team/{key}_blue": value})
         for key, value in avg_dict_orange.items():
             log_dict.update({f"rewards_step_team/{key}_orange": value})
+        for key, value in slopes.items():
+            log_dict.update({f"slider_stats/{key}_slope": value})
+        for key, value in stds.items():
+            log_dict.update({f"slider_stats/{key}_std": value})
         # sorted_dict = dict(sorted(log_dict.items()))  #  wandb doesn't respect this anyway
         self.logger.log(log_dict, step=iteration, commit=False)
     def evaluate_actions(self, observations, actions):
