@@ -410,6 +410,8 @@ class PPO:
         advantages = np.zeros_like(rewards)
         # v_targets = np.zeros_like(rewards)
         dones = np.zeros_like(rewards)
+        # if truncated:
+        #     print("got truncated in ppo")
         dones[-1] = 1. if not truncated else 0.
         episode_starts = np.zeros_like(rewards)
         episode_starts[0] = 1.

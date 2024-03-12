@@ -200,11 +200,15 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     info['state'] = None
             # print(f"rewards in python are {rewards}")
 
-            # TODO: add truncated eventually?
             # truncated = False
             # for terminal in env._match._terminal_conditions:  # noqa
             #     if isinstance(terminal, TruncatedCondition):
             #         truncated |= terminal.is_truncated(info["state"])
+            # truncated from rust is in info on key "truncated" and is either 0. or 1.
+            truncated = False
+            truncated |= bool(info["truncated"])
+            # if truncated:
+            #     print("episode got truncated")
 
             if len(policies) <= 1:
                 observations, rewards = [observations], [rewards]
@@ -223,9 +227,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             # Might be different if only one agent?
             if not evaluate:  # Evaluation matches can be long, no reason to keep them in memory
                 for exp_buf, obs, act, rew, log_prob in zip(rollouts, old_obs, all_indices, rewards, all_log_probs):
-                    # exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, info)
+                    exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, info)
                     # if not rust_sim:
-                    exp_buf.add_step(obs, act, rew, done, log_prob, info)
+                    # exp_buf.add_step(obs, act, rew, done, log_prob, info)
                     # else:
                     #     exp_buf.add_step(obs, act, rew, done, log_prob, [])
                     # print(f"actions going to buffer are {act} and rewards are {rew}")
@@ -238,7 +242,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     prog_str += f", BLUE {b} - {o} ORANGE"
                 progress.set_postfix_str(prog_str)
 
-            if done:  # or truncated:
+            if done or truncated:
                 # if not rust_sim:
                 result += info["result"]
                 if info["result"] > 0:
