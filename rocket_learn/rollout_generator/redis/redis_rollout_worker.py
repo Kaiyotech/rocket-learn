@@ -181,11 +181,11 @@ class RedisRolloutWorker:
                 self.env.render()
         elif rust_sim:
             # need rust gym here
-            import spectrum
+            import opti
             # TODO fix this for eval in Rust, or run them in python
             from rlgym_sim.utils.state_setters import DefaultState
             self.eval_setter = DefaultState()
-            self.env = spectrum.GymWrapper(tick_skip=tick_skip,
+            self.env = opti.GymWrapper(tick_skip=tick_skip,
                                            team_size=team_size,
                                            gravity=1.0,
                                            self_play=spawn_opponents,
