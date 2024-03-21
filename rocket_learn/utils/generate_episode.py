@@ -206,7 +206,8 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             #         truncated |= terminal.is_truncated(info["state"])
             # truncated from rust is in info on key "truncated" and is either 0. or 1.
             truncated = False
-            truncated |= bool(info["truncated"])
+            if rust_sim:
+                truncated |= bool(info["truncated"])
             # if truncated:
             #     print("episode got truncated")
 
