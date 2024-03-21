@@ -50,6 +50,7 @@ class RedisRolloutWorker:
     """
 
     def __init__(self, redis: Redis, name: str, match, matchmaker: BaseMatchmaker,
+                 submodel_name="GP",
                  evaluation_prob=0.01, sigma_target=1,
                  dynamic_gm=True, streamer_mode=False, send_gamestates=True,
                  send_obs=True, scoreboard=None, pretrained_agents: PretrainedAgents = None,
@@ -194,6 +195,7 @@ class RedisRolloutWorker:
                                            reward_logging=reward_logging,
                                            visualize=visualize,
                                            # copy_gamestate_every_step=True,
+                                           submodel_name=submodel_name,
                                            )
             # dodge_deadzone=dodge_deadzone,
             # seed=123)
