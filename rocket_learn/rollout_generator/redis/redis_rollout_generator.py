@@ -459,7 +459,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             self.redis.set(REWARD_STAGE, 3)
         elif total_timesteps >= 2_750_000_000:  # 2.75 for all modes
             self.redis.set(REWARD_STAGE, 2)
-        elif total_timesteps >= 750_000_000:  # 450 for all modes
+        elif total_timesteps >= 500_000_000:  # 450 for all modes
             self.redis.set(REWARD_STAGE, 1)
         else:
             self.redis.set(REWARD_STAGE, 0)
