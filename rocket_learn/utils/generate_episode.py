@@ -16,7 +16,7 @@ from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 from rocket_learn.utils.util import make_python_state, gamestate_to_replay_array
 from rocket_learn.utils.truncated_condition import TruncatedCondition
-import pickle
+# import pickle
 
 
 def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
@@ -101,7 +101,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
     if gather_data:
         data_ticks_passed = 30
         gather_data_ticks = random.uniform(15, 45)
-    fh_pickle = open("testing_state.pkl", 'wb')
+    # fh_pickle = open("testing_state.pkl", 'wb')
     with torch.no_grad():
         while True:
             all_indices = []
@@ -209,7 +209,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     info['state'] = make_python_state(state)
                 else:
                     info['state'] = None
-                pickle.dump((info['state'], gamestate_to_replay_array(info['state'])), fh_pickle)
+                # pickle.dump((info['state'], gamestate_to_replay_array(info['state'])), fh_pickle)
                 if gather_data:
                     data_ticks_passed += 1
                     if (data_ticks_passed > gather_data_ticks):
