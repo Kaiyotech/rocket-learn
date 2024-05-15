@@ -122,3 +122,80 @@ def make_python_state(state_vals) -> GameState:
     state.players.sort(key=lambda p: p.car_id)
 
     return state
+
+
+def gamestate_to_numpy_array(gamestate):
+    # Initialize an empty list to hold the state values
+    state_values = []
+
+    # Add game type, scores, and boost pads
+    state_values.extend([gamestate.game_type, gamestate.blue_score, gamestate.orange_score])
+    state_values.extend(gamestate.boost_pads.tolist())
+    state_values.extend(gamestate.inverted_boost_pads.tolist())
+
+    # Add ball position, linear velocity, and angular velocity
+    state_values.extend(gamestate.ball.position.tolist())
+    state_values.extend(gamestate.ball.linear_velocity.tolist())
+    state_values.extend(gamestate.ball.angular_velocity.tolist())
+
+    # Add inverted ball position, linear velocity, and angular velocity
+    state_values.extend(gamestate.inverted_ball.position.tolist())
+    state_values.extend(gamestate.inverted_ball.linear_velocity.tolist())
+    state_values.extend(gamestate.inverted_ball.angular_velocity.tolist())
+
+    # Add player data
+    # print(f"there are {len(gamestate.players)} players")
+    for player in gamestate.players:
+        # print(f"creating player {player.car_id}")
+        state_values.append(player.car_id)
+        state_values.append(player.team_num)
+        state_values.extend(player.car_data.position.tolist())
+        state_values.extend(player.car_data.quaternion.tolist())
+        state_values.extend(player.car_data.linear_velocity.tolist())
+        state_values.extend(player.car_data.angular_velocity.tolist())
+        state_values.extend(player.inverted_car_data.position.tolist())
+        state_values.extend(player.inverted_car_data.quaternion.tolist())
+        state_values.extend(player.inverted_car_data.linear_velocity.tolist())
+        state_values.extend(player.inverted_car_data.angular_velocity.tolist())
+        state_values.append(player.match_goals)
+        state_values.append(player.match_saves)
+        state_values.append(player.match_shots)
+        state_values.append(player.match_demolishes)
+        state_values.append(player.boost_pickups)
+        state_values.append(player.is_demoed)
+        state_values.append(int(player.on_ground))
+        state_values.append(int(player.ball_touched))
+        state_values.append(int(player.has_jump))
+        state_values.append(int(player.has_flip))
+        state_values.append(player.boost_amount)
+
+    # Convert the list to a NumPy array
+    state_array = np.array(state_values)
+
+    return state_array
+
+
+def gamestate_to_replay_array(gamestate):
+    # Initialize an empty list to hold the state values
+    state_values = []
+
+    # Add ball position, linear velocity, and angular velocity
+    state_values.extend(gamestate.ball.position.tolist())
+    state_values.extend(gamestate.ball.linear_velocity.tolist())
+    state_values.extend(gamestate.ball.angular_velocity.tolist())
+
+    # Add player data
+    # print(f"there are {len(gamestate.players)} players")
+    for player in gamestate.players:
+        # print(f"creating player {player.car_id}")
+        state_values.extend(player.car_data.position.tolist())
+        euler = player.car_data.euler_angles()
+        state_values.extend(euler.tolist())
+        state_values.extend(player.car_data.linear_velocity.tolist())
+        state_values.extend(player.car_data.angular_velocity.tolist())
+        state_values.append(player.boost_amount)
+
+    # Convert the list to a NumPy array
+    state_array = np.array(state_values)
+
+    return state_array

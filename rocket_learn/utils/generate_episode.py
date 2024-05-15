@@ -2,6 +2,8 @@ import os
 from typing import List
 
 import numpy as np
+import random
+import string
 import torch
 from rlgym_sim.gym import Gym
 from rlgym_sim.utils.reward_functions.common_rewards import ConstantReward
@@ -12,14 +14,14 @@ from rocket_learn.agent.policy import Policy
 from rocket_learn.agent.pretrained_policy import HardcodedAgent
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
-from rocket_learn.utils.util import make_python_state
+from rocket_learn.utils.util import make_python_state, gamestate_to_replay_array
 from rocket_learn.utils.truncated_condition import TruncatedCondition
 import pickle
 
 
 def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
                      progress=False, rust_sim=False, infinite_boost_odds=0, streamer=False,
-                     send_gamestates=False, reward_stage=0,
+                     send_gamestates=False, reward_stage=0, gather_data=False,
                      ) -> (
         List[ExperienceBuffer], int):
     """
@@ -55,6 +57,10 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
     if any(isinstance(policy, HardcodedAgent) for policy in policies):
         # we have pretrained models that need gamestate
         send_gamestates = True
+    if gather_data:  # gathering data requires the gamestate
+        send_gamestates = True
+        file_name = "gather_data\\" + ''.join(random.choice(string.ascii_lowercase) for i in range(16))
+        to_save = []
     if not rust_sim:
         observations, info = env.reset(return_info=True)
     else:
@@ -92,6 +98,10 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         ]
 
     b = o = 0
+    if gather_data:
+        data_ticks_passed = 30
+        gather_data_ticks = random.uniform(15, 45)
+    fh_pickle = open("testing_state.pkl", 'wb')
     with torch.no_grad():
         while True:
             all_indices = []
@@ -193,11 +203,21 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 observations, rewards, done, info = env.step(all_actions)
             else:
                 observations, rewards, done, info, state = env.step(all_actions)
+                
                 # state is a f32 vector of the state
                 if send_gamestates:
                     info['state'] = make_python_state(state)
                 else:
                     info['state'] = None
+                pickle.dump((info['state'], gamestate_to_replay_array(info['state'])), fh_pickle)
+                if gather_data:
+                    data_ticks_passed += 1
+                    if (data_ticks_passed > gather_data_ticks):
+                        data_ticks_passed = 0
+                        gather_data_ticks = random.uniform(15,45)
+                        to_save.append(gamestate_to_replay_array(info['state']))
+
+
             # print(f"rewards in python are {rewards}")
 
             # truncated = False
@@ -244,6 +264,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 progress.set_postfix_str(prog_str)
 
             if done or truncated:
+                if gather_data:
+                    np.save(file_name, np.asarray(to_save))
+
                 # if not rust_sim:
                 result += info["result"]
                 if info["result"] > 0:

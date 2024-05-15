@@ -74,11 +74,14 @@ class RedisRolloutWorker:
                  infinite_boost_odds=0,
                  reward_logging=False,
                  visualize=False,
+                 gather_data=False,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
         self.name = name
         self.rust_sim = rust_sim
+
+        self.gather_data = gather_data
 
         self.available_version = None
 
@@ -413,6 +416,7 @@ class RedisRolloutWorker:
                         infinite_boost_odds=self.infinite_boost_odds,
                         streamer=self.streamer_mode,
                         reward_stage=self.reward_stage,
+                        gather_data=self.gather_data,
                     )
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
