@@ -16,6 +16,9 @@ from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 from rocket_learn.utils.util import make_python_state, gamestate_to_replay_array
 from rocket_learn.utils.truncated_condition import TruncatedCondition
+
+import pretrained_agents.Opti.Opti_submodel
+
 # import pickle
 
 
@@ -82,7 +85,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
 
     result = 0
 
-    last_state = info['state']   # game_state for obs_building of other agents
+    last_state = info['state']  # game_state for obs_building of other agents
 
     latest_policy_indices = [0 if isinstance(p, HardcodedAgent) else 1 for p in policies]
     # rollouts for all latest_policies
@@ -148,7 +151,14 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     #     obs = tuple(np.concatenate([obs[i] for obs in observations], axis=0)
                     #                 for i in range(len(observations[0])))
                     if isinstance(policy, HardcodedAgent):
-                        actions = policy.act(last_state, index)
+                        actions = None
+                        # No reason to build another obs, just use the rust one that's already built
+                        if isinstance(policy, pretrained_agents.Opti.Opti_submodel.Submodel):
+                            # put the mirror back
+                            obs = (obs[0], obs[1], mirror[index])
+                            actions = policy.act(obs, last_state, index)
+                        else:
+                            actions = policy.act(last_state, index)
 
                         # make sure output is in correct format
                         if not isinstance(observations, np.ndarray):
@@ -191,7 +201,8 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 if sliders is not None:
                     slider_range = range(61, 65)
                     stream_obs[slider_range] = sliders
-                (slider_string, scoreboard_string) = print_stream_info(slider_string, scoreboard_string, stream_obs) # noqa
+                (slider_string, scoreboard_string) = print_stream_info(slider_string, scoreboard_string,
+                                                                       stream_obs)  # noqa
 
             all_actions = np.vstack(all_actions)
             old_obs = observations
@@ -203,10 +214,12 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 observations, rewards, done, info = env.step(all_actions)
             else:
                 observations, rewards, done, info, state = env.step(all_actions)
-                
+
                 # state is a f32 vector of the state
                 if send_gamestates:
                     info['state'] = make_python_state(state)
+                    # print(f"state in python: {info['state']}")
+                    # print(f"array in python: {state}")
                 else:
                     info['state'] = None
                 # pickle.dump((info['state'], gamestate_to_replay_array(info['state'])), fh_pickle)
@@ -214,9 +227,8 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     data_ticks_passed += 1
                     if (data_ticks_passed > gather_data_ticks):
                         data_ticks_passed = 0
-                        gather_data_ticks = random.uniform(15,45)
+                        gather_data_ticks = random.uniform(15, 45)
                         to_save.append(gamestate_to_replay_array(info['state']))
-
 
             # print(f"rewards in python are {rewards}")
 
