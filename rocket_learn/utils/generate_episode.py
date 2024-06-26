@@ -24,7 +24,8 @@ import pretrained_agents.Opti.Opti_submodel
 
 def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
                      progress=False, rust_sim=False, infinite_boost_odds=0, streamer=False,
-                     send_gamestates=False, reward_stage=0, gather_data=False,
+                     send_gamestates=False, reward_stage=0, gather_data=False, selector=False,
+                     ngp_reward=None,
                      ) -> (
         List[ExperienceBuffer], int):
     """
@@ -53,6 +54,15 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             env.update_settings(boost_consumption=1)  # remove infinite boost
 
         env._match._reward_fn = ConstantReward()  # noqa Save some cpu cycles
+
+    if ngp_reward is not None:
+        accumulated_old_obs = []
+        accumulated_all_indices = []
+        accumulated_rewards = []
+        accumulated_all_log_probs = []
+        accumulated_states = []
+        accumulated_dones = []
+        send_gamestates = True
 
     if scoreboard is not None:
         random_resets = scoreboard.random_resets
@@ -105,6 +115,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         data_ticks_passed = 30
         gather_data_ticks = random.uniform(15, 45)
     # fh_pickle = open("testing_state.pkl", 'wb')
+
     with torch.no_grad():
         while True:
             all_indices = []
@@ -258,7 +269,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             assert len(old_obs) == len(rollouts), str(len(old_obs)) + " obs, " + str(len(rollouts)) + " ind"
 
             # Might be different if only one agent?
-            if not evaluate:  # Evaluation matches can be long, no reason to keep them in memory
+            if not evaluate and ngp_reward is None:  # Evaluation matches can be long, no reason to keep them in memory
                 for exp_buf, obs, act, rew, log_prob in zip(rollouts, old_obs, all_indices, rewards, all_log_probs):
                     exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, info)
                     # if not rust_sim:
@@ -266,6 +277,13 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     # else:
                     #     exp_buf.add_step(obs, act, rew, done, log_prob, [])
                     # print(f"actions going to buffer are {act} and rewards are {rew}")
+            elif ngp_reward is not None:
+                accumulated_old_obs.append(old_obs)
+                accumulated_all_indices.append(all_indices)
+                accumulated_rewards.append(rewards)
+                accumulated_all_log_probs.append(all_log_probs)
+                accumulated_states.append(last_state)
+                accumulated_dones.append(done + 2 * truncated)
             # TODO skipping for now for rust to not hack on _match
             if progress is not None:
                 progress.update()
@@ -278,7 +296,16 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             if done or truncated:
                 if gather_data:
                     np.save(file_name, np.asarray(to_save))
-
+                if ngp_reward is not None:
+                    updated_rewards = ngp_reward.add_ngp_rewards(accumulated_rewards, accumulated_states)
+                    for old_obs_list, indices_list, rewards_list, log_probs_list, done in zip(accumulated_old_obs,
+                                                                                        accumulated_all_indices,
+                                                                                        updated_rewards,
+                                                                                        accumulated_all_log_probs,
+                                                                                        accumulated_dones):
+                        for exp_buf, old_obs, indices, rew, log_prob in zip(rollouts, old_obs_list, indices_list, rewards_list,
+                                                                   log_probs_list):
+                            exp_buf.add_step(old_obs, indices, rew, done, log_prob, info)
                 # if not rust_sim:
                 result += info["result"]
                 if info["result"] > 0:

@@ -75,11 +75,15 @@ class RedisRolloutWorker:
                  reward_logging=False,
                  visualize=False,
                  gather_data=False,
+                 ngp_reward=None,
+                 selector=False,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
         self.name = name
         self.rust_sim = rust_sim
+        self.ngp_reward = ngp_reward
+        self.selector = selector
 
         self.gather_data = gather_data
 
@@ -396,6 +400,7 @@ class RedisRolloutWorker:
                                                                               progress=self.live_progress,
                                                                               rust_sim=self.rust_sim,
                                                                               infinite_boost_odds=0,
+                                                                              selector=self.selector
                                                                               # eval_setter=self.eval_setter,
                                                                               )
                 rollouts = []
@@ -417,6 +422,8 @@ class RedisRolloutWorker:
                         streamer=self.streamer_mode,
                         reward_stage=self.reward_stage,
                         gather_data=self.gather_data,
+                        selector=self.selector,
+                        ngp_reward=self.ngp_reward
                     )
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
