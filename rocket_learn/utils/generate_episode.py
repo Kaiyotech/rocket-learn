@@ -25,7 +25,7 @@ import pretrained_agents.Opti.Opti_submodel
 def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
                      progress=False, rust_sim=False, infinite_boost_odds=0, streamer=False,
                      send_gamestates=False, reward_stage=0, gather_data=False, selector=False,
-                     ngp_reward=None,
+                     ngp_reward=None, selector_parser=None,
                      ) -> (
         List[ExperienceBuffer], int):
     """
@@ -62,8 +62,10 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         accumulated_all_log_probs = []
         accumulated_states = []
         accumulated_dones = []
+        accumulated_infos = []
         send_gamestates = True
-
+    if selector:
+        send_gamestates = True  # needed for evals and everything
     if scoreboard is not None:
         random_resets = scoreboard.random_resets
         scoreboard.random_resets = not evaluate
@@ -150,7 +152,10 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 # pickle.dump(to_dump, fh)
                 action_indices = policy.sample_action(dist)
                 log_probs = policy.log_prob(dist, action_indices)
-                actions = policy.env_compatible(action_indices)
+                if not selector:
+                    actions = policy.env_compatible(action_indices)
+                else:
+                    actions = selector_parser.parse_actions(action_indices, last_state, obs)
 
                 all_indices.extend(list(action_indices.numpy()))
                 all_actions.extend(list(actions))
@@ -186,7 +191,10 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                         dist = policy.get_action_distribution(obs)
                         action_indices = policy.sample_action(dist)[0]
                         log_probs = policy.log_prob(dist, action_indices).item()
-                        actions = policy.env_compatible(action_indices)
+                        if not selector:
+                            actions = policy.env_compatible(action_indices)
+                        else:
+                            actions = selector_parser.parse_actions(action_indices, last_state, obs)
 
                         all_indices.append(action_indices.numpy())
                         all_actions.append(actions)
@@ -282,8 +290,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 accumulated_all_indices.append(all_indices)
                 accumulated_rewards.append(rewards)
                 accumulated_all_log_probs.append(all_log_probs)
-                accumulated_states.append(last_state)
+                accumulated_states.append(info['state'])
                 accumulated_dones.append(done + 2 * truncated)
+                accumulated_infos.append(info)
             # TODO skipping for now for rust to not hack on _match
             if progress is not None:
                 progress.update()
@@ -297,15 +306,18 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 if gather_data:
                     np.save(file_name, np.asarray(to_save))
                 if ngp_reward is not None:
-                    updated_rewards = ngp_reward.add_ngp_rewards(accumulated_rewards, accumulated_states)
-                    for old_obs_list, indices_list, rewards_list, log_probs_list, done in zip(accumulated_old_obs,
+                    updated_rewards = ngp_reward.add_ngp_rewards(accumulated_rewards, accumulated_states,
+                                                                 latest_policy_indices)
+                    for old_obs_list, indices_list, rewards_list, log_probs_list, done, my_info in zip(accumulated_old_obs,
                                                                                         accumulated_all_indices,
                                                                                         updated_rewards,
                                                                                         accumulated_all_log_probs,
-                                                                                        accumulated_dones):
+                                                                                        accumulated_dones,
+                                                                                        accumulated_infos
+                                                                                        ):
                         for exp_buf, old_obs, indices, rew, log_prob in zip(rollouts, old_obs_list, indices_list, rewards_list,
                                                                    log_probs_list):
-                            exp_buf.add_step(old_obs, indices, rew, done, log_prob, info)
+                            exp_buf.add_step(old_obs, indices, rew, done, log_prob, my_info)
                 # if not rust_sim:
                 result += info["result"]
                 if info["result"] > 0:

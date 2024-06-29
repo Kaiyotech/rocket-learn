@@ -77,6 +77,7 @@ class RedisRolloutWorker:
                  gather_data=False,
                  ngp_reward=None,
                  selector=False,
+                 selector_parser=None,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
@@ -84,6 +85,9 @@ class RedisRolloutWorker:
         self.rust_sim = rust_sim
         self.ngp_reward = ngp_reward
         self.selector = selector
+        self.selector_parser = selector_parser
+        if self.selector:
+            assert self.selector_parser is not None
 
         self.gather_data = gather_data
 
@@ -400,7 +404,8 @@ class RedisRolloutWorker:
                                                                               progress=self.live_progress,
                                                                               rust_sim=self.rust_sim,
                                                                               infinite_boost_odds=0,
-                                                                              selector=self.selector
+                                                                              selector=self.selector,
+                                                                              selector_parser=self.selector_parser,
                                                                               # eval_setter=self.eval_setter,
                                                                               )
                 rollouts = []
@@ -423,7 +428,8 @@ class RedisRolloutWorker:
                         reward_stage=self.reward_stage,
                         gather_data=self.gather_data,
                         selector=self.selector,
-                        ngp_reward=self.ngp_reward
+                        selector_parser=self.selector_parser,
+                        ngp_reward=self.ngp_reward,
                     )
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason

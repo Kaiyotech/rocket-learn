@@ -76,7 +76,12 @@ class PPO:
             clip_frac_kd=0,
             wandb_wait_btwn=5,
             save_latest=False,
+            action_selection_dict=None,
+            num_actions=0,
+
     ):
+        self.num_actions = num_actions
+        self.action_selection_dict = action_selection_dict
         self.save_latest = save_latest
         self.rollout_generator = rollout_generator
         self.reward_logging_dir = reward_logging_dir
@@ -421,6 +426,9 @@ class PPO:
 
         ep_rewards = []
         ep_steps = []
+        action_count = np.asarray([0] * self.num_actions)
+        action_changes = 0
+
         n = 0
 
         for buffer in buffers:  # Do discounts for each ExperienceBuffer individually
@@ -450,6 +458,12 @@ class PPO:
             advantages = self._calculate_advantages_numba(rewards, values, self.gamma, self.gae_lambda, dones[-1] == 2)
 
             returns = advantages + values
+            if self.action_selection_dict is not None:
+                flat_actions = actions[:, 0].flatten()
+                unique, counts = np.unique(flat_actions, return_counts=True)
+                for i, value in enumerate(unique):
+                    action_count[value] += counts[i]
+                action_changes += (np.diff(flat_actions) != 0).sum()
 
             obs_tensors.append(obs_tensor)
             act_tensors.append(th.from_numpy(actions))
@@ -468,10 +482,18 @@ class PPO:
             "ppo/ep_reward_mean": ep_rewards.mean(),
             "ppo/ep_reward_std": ep_rewards.std(),
             "ppo/ep_len_mean": ep_steps.mean(),
+            "submodel_swaps/action_changes": action_changes / total_steps,
             "ppo/mean_reward_per_step": ep_rewards.mean() / ep_steps.mean(),
             "ppo/abs_ep_reward_mean": np.abs(ep_rewards).sum() / ep_steps.mean(),
 
         }, step=iteration, commit=False)
+
+        if self.action_selection_dict is not None:
+            for k, v in self.action_selection_dict.items():
+                count = action_count[k]
+                name = "submodels/" + v
+                ratio_used = count / total_steps
+                self.logger.log({name: ratio_used}, step=iteration, commit=False)
 
         print(f"std, mean rewards: {ep_rewards.std()}\t{ep_rewards.mean()}")
 
