@@ -21,7 +21,7 @@ import rocket_learn.utils.generate_episode
 from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
 from rocket_learn.rollout_generator.redis.utils import _unserialize_model, MODEL_LATEST, WORKER_IDS, OPPONENT_MODELS, \
     VERSION_LATEST, _serialize, ROLLOUTS, encode_buffers, decode_buffers, get_rating, get_ratings, LATEST_RATING_ID, \
-    EXPERIENCE_PER_MODE, REWARD_STAGE, _unserialize
+    EXPERIENCE_PER_MODE, REWARD_STAGE, _unserialize, OPPONENT_MODEL_SELECTOR_SKIP
 from rocket_learn.utils.util import probability_NvsM
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 
@@ -47,6 +47,7 @@ class RedisRolloutWorker:
      :param auto_minimize: automatically minimize the launched rocket league instance
      :param local_cache_name: name of local database used for model caching. If None, caching is not used
      :param gamemode_weights: dict of dynamic gamemode choice weights. If None, default equal experience
+     :param selector_skip_k: value to control the tick skip probability of the selector
     """
 
     def __init__(self, redis: Redis, name: str, match, matchmaker: BaseMatchmaker,
@@ -64,6 +65,7 @@ class RedisRolloutWorker:
                  pipeline_limit_bytes=25_000_000,
                  gamemode_weight_ema_alpha=0.02,
                  eval_setter=None,
+                 selector_skip_k=None,
                  simulator=False,
                  dodge_deadzone=0.5,
                  live_progress=True,
@@ -91,6 +93,9 @@ class RedisRolloutWorker:
 
         self.gather_data = gather_data
 
+        self.selector_skip_k = selector_skip_k
+        if self.selector_skip_k is not None:
+            self.selector_skip_k = float(self.redis.get("selector_skip_k"))
         self.available_version = None
 
         self.matchmaker = matchmaker
@@ -351,18 +356,22 @@ class RedisRolloutWorker:
 
                 versions = [v if v != -1 else latest_version for v in versions]
                 ratings = ["na"] * len(versions)
+                selector_skips = [None] * (blue + orange)
             else:
                 versions, ratings, evaluate, blue, orange = self.matchmaker.generate_matchup(self.redis,
                                                                                              blue + orange,
                                                                                              evaluate,
                                                                                              )
                 agents = []
+                selector_skips = []
                 for i, version in enumerate(versions):
                     if version == -1:
                         versions[i] = latest_version
                         agents.append(self.current_agent)
+                        selector_skips.append(self.selector_skip_k)
                         n_new += 1
                     else:
+                        selector_skip_agent = None
                         # For instances of PretrainedDiscretePolicy, whose redis qualities keys end with -deterministic or -stochastic
                         short_name = "-".join(version.split("-")[:-1])
                         if short_name in self.pretrained_agents_keymap:
@@ -372,6 +381,12 @@ class RedisRolloutWorker:
                             selected_agent = self.pretrained_agents_keymap[version]
                         else:
                             selected_agent = self._get_past_model(short_name)
+                            if self.selector_skip_k is not None:
+                                selector_skip_agent = self.redis.hget(OPPONENT_MODEL_SELECTOR_SKIP, short_name)
+                                if selector_skip_agent is None:
+                                    selector_skip_agent = self.selector_skip_k
+                                else:
+                                    selector_skip_agent = float(selector_skip_agent)
 
                             if self.force_old_deterministic and n_new != 0:
                                 versions[i] = versions[i].replace(
@@ -387,14 +402,15 @@ class RedisRolloutWorker:
                             else:
                                 raise ValueError("Unknown version type")
                         agents.append(selected_agent)
+                        selector_skips.append(selector_skip_agent)
 
             self.set_team_size(blue, orange)
 
             table_str = self.make_table(versions, ratings, blue, orange)
 
             # if all selector skips are None, no need to pass a list
-            # if selector_skips.count(None) == len(selector_skips):
-            #     selector_skips = None
+            if selector_skips.count(None) == len(selector_skips):
+                selector_skips = None
 
             if evaluate and not self.streamer_mode and self.human_agent is None:
                 print("EVALUATION GAME\n" + table_str)
@@ -406,6 +422,7 @@ class RedisRolloutWorker:
                                                                               infinite_boost_odds=0,
                                                                               selector=self.selector,
                                                                               selector_parser=self.selector_parser,
+                                                                              selector_skip_k=selector_skips,
                                                                               # eval_setter=self.eval_setter,
                                                                               )
                 rollouts = []
@@ -430,6 +447,7 @@ class RedisRolloutWorker:
                         selector=self.selector,
                         selector_parser=self.selector_parser,
                         ngp_reward=self.ngp_reward,
+                        selector_skip_k=selector_skips,
                     )
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
@@ -489,6 +507,10 @@ class RedisRolloutWorker:
                 # t.start()
                 # time.sleep(0.01)
 
+                # update selector skip from redis
+                if self.selector_skip_k is not None:
+                    self.selector_skip_k = float(self.redis.get("selector_skip_k"))
+
             elif not self.streamer_mode and self.batch_mode:
 
                 rollout_data = encode_buffers(rollouts,
@@ -517,3 +539,8 @@ class RedisRolloutWorker:
                             "Had to limit rollouts. Learner may have have crashed, or is overloaded")
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
+
+                    # get new selector_skip from redis
+                    if self.selector_skip_k is not None:
+                        self.selector_skip_k = float(self.redis.get("selector_skip_k"))
+

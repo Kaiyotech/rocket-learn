@@ -26,6 +26,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                      progress=False, rust_sim=False, infinite_boost_odds=0, streamer=False,
                      send_gamestates=False, reward_stage=0, gather_data=False, selector=False,
                      ngp_reward=None, selector_parser=None,
+                     selector_skip_k=None,
                      ) -> (
         List[ExperienceBuffer], int):
     """
@@ -117,8 +118,17 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         data_ticks_passed = 30
         gather_data_ticks = random.uniform(15, 45)
     # fh_pickle = open("testing_state.pkl", 'wb')
+    num_submodels = None
+    for i, value in enumerate(latest_policy_indices):
+        if value == 1 and policies[i].shape[0] < 50:
+            num_submodels = policies[i].shape[0]
+            break
 
     with torch.no_grad():
+        tick = [0] * len(policies)
+        do_selector = [True] * len(policies)
+        last_actions = [None] * len(policies)
+        last_model_action = torch.tensor([[random.choice(range(num_submodels))] for _ in range(len(policies))], dtype=torch.long)
         while True:
             all_indices = []
             all_actions = []
@@ -129,6 +139,18 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 for i, observation in enumerate(observations):
                     mirror.append(observation[2])
                     observations[i] = observations[i][:-1]
+            actual_prev_actions = [None] * len(observations)
+            if selector:
+                # need to update the model action with last model action one-hot
+                # and remove the actual prev actions but save them for later to give to submodels
+                for i, observation in enumerate(observations):
+                    one_hot = np.zeros(num_submodels)
+                    one_hot[last_model_action[i][0]] = 1
+                    observations[i][0][:, 199:][0] = one_hot
+
+                    # 37 through 45 are prev action
+                    actual_prev_actions[i] = observations[i][0][:, 37:45][0]
+
             # if observation isn't a list, make it one so we don't iterate over the observation directly
             if not isinstance(observations, list):
                 observations = [observations]
@@ -146,19 +168,31 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     # obs = observations
                 # mirror = obs[-1]
                 # obs = obs[:-1]
+
                 dist = policy.get_action_distribution(obs)
                 # to_dump = (obs, dist)
                 # fh = open("obs-dist.pkl", "ab")
                 # pickle.dump(to_dump, fh)
-                action_indices = policy.sample_action(dist)
-                log_probs = policy.log_prob(dist, action_indices)
+
                 if not selector:
+                    action_indices = policy.sample_action(dist)
                     actions = policy.env_compatible(action_indices)
                 else:
+                    if do_selector[0]:
+                        action_indices = policy.sample_action(dist)
+                        last_model_action = action_indices
+
+                    else:
+                        action_indices = last_model_action
+
+                    # need to remove the prev model actions and add the prev actions
+                    obs[0][:, 37:45] = np.array(actual_prev_actions)
+                    obs = (obs[0][:, :-6], obs[1])
                     actions = selector_parser.parse_actions(action_indices, last_state, obs)
 
                 all_indices.extend(list(action_indices.numpy()))
                 all_actions.extend(list(actions))
+                log_probs = policy.log_prob(dist, action_indices)
                 all_log_probs.extend(list(log_probs.numpy()))
             else:
                 index = 0
@@ -170,8 +204,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                         actions = None
                         # No reason to build another obs, just use the rust one that's already built
                         if isinstance(policy, pretrained_agents.Opti.Opti_submodel.Submodel):
-                            # put the mirror back
-                            obs = (obs[0], obs[1], mirror[index])
+                            # remove model actions and add previous actions and put back mirror
+                            obs[0][:, 37:45] = np.array(actual_prev_actions[index])
+                            obs = (obs[0][:, :-6], obs[1], mirror[index])
                             actions = policy.act(obs, last_state, index)
                         else:
                             actions = policy.act(last_state, index)
@@ -189,22 +224,33 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
 
                     elif isinstance(policy, Policy):
                         dist = policy.get_action_distribution(obs)
-                        action_indices = policy.sample_action(dist)[0]
-                        log_probs = policy.log_prob(dist, action_indices).item()
                         if not selector:
+                            action_indices = policy.sample_action(dist)[0]
                             actions = policy.env_compatible(action_indices)
                         else:
+                            if do_selector[index]:
+                                action_indices = policy.sample_action(dist)
+                                last_model_action[index] = action_indices
+
+                            else:
+                                action_indices = last_model_action[index].unsqueeze(0)
+
+                            # need to remove the prev model actions and add the prev actions
+                            obs[0][:, 37:45] = np.array(actual_prev_actions[index])
+                            obs = (obs[0][:, :-6], obs[1])
                             actions = selector_parser.parse_actions(action_indices, last_state, obs)
 
-                        all_indices.append(action_indices.numpy())
+                        all_indices.extend(list(action_indices.numpy()))
                         all_actions.append(actions)
-                        all_log_probs.append(log_probs)
+                        log_probs = policy.log_prob(dist, action_indices)
+                        all_log_probs.extend(list(log_probs.numpy()))
 
                     else:
                         print(str(type(policy)) + " type use not defined")
                         assert False
 
                     index += 1
+
                 # pad because of pretrained
                 length = max([a.shape[0] for a in all_actions])
                 padded_actions = []
@@ -222,6 +268,16 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     stream_obs[slider_range] = sliders
                 (slider_string, scoreboard_string) = print_stream_info(slider_string, scoreboard_string,
                                                                        stream_obs)  # noqa
+            if selector_skip_k is not None:
+                for i in range(len(do_selector)):
+                    if not isinstance(policies[i], HardcodedAgent):
+                        do_selector[i] = do_selector_action(selector_skip_k[i], tick[i])
+                        if policies[i].deterministic:
+                            do_selector[i] = True
+            else:
+                do_selector = [True] * 6
+            for i in range(len(tick)):
+                tick[i] = 0 if do_selector[i] else tick[i] + 1
 
             all_actions = np.vstack(all_actions)
             old_obs = observations
@@ -411,3 +467,11 @@ def get_sliders():
             return slider_values
     except Exception as e:
         print(f"Error reading slider values: {e}")
+
+
+def do_selector_action(selector_skip_k, tick) -> bool:
+    p = 1 / (1 + (selector_skip_k * tick))
+    if np.random.uniform() < p:
+        return False
+    else:
+        return True
