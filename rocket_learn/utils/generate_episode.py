@@ -123,12 +123,15 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         if value == 1 and policies[i].shape[0] < 50:
             num_submodels = policies[i].shape[0]
             break
-
+    # eval with no selector
+    if num_submodels is None:
+        selector = False
     with torch.no_grad():
         tick = [0] * len(policies)
         do_selector = [True] * len(policies)
         last_actions = [None] * len(policies)
-        last_model_action = torch.tensor([[random.choice(range(num_submodels))] for _ in range(len(policies))], dtype=torch.long)
+        if selector:
+            last_model_action = torch.tensor([[random.choice(range(num_submodels))] for _ in range(len(policies))], dtype=torch.long)
         while True:
             all_indices = []
             all_actions = []
@@ -204,8 +207,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                         actions = None
                         # No reason to build another obs, just use the rust one that's already built
                         if isinstance(policy, pretrained_agents.Opti.Opti_submodel.Submodel):
-                            # remove model actions and add previous actions and put back mirror
-                            obs[0][:, 37:45] = np.array(actual_prev_actions[index])
+                            # remove model actions (if removed by selector) and add previous actions and put back mirror
+                            if selector:
+                                obs[0][:, 37:45] = np.array(actual_prev_actions[index])
                             obs = (obs[0][:, :-6], obs[1], mirror[index])
                             actions = policy.act(obs, last_state, index)
                         else:
