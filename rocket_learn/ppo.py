@@ -78,8 +78,9 @@ class PPO:
             save_latest=False,
             action_selection_dict=None,
             num_actions=0,
-
+            extra_prints=False,
     ):
+        self.extra_prints = extra_prints
         self.num_actions = num_actions
         self.action_selection_dict = action_selection_dict
         self.save_latest = save_latest
@@ -93,7 +94,7 @@ class PPO:
         self.frozen_iterations = 0
         self._saved_lr = None
 
-        self.wandb_wait_btwn=wandb_wait_btwn
+        self.wandb_wait_btwn = wandb_wait_btwn
 
         self.starting_iteration = 0
 
@@ -111,7 +112,8 @@ class PPO:
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
-        self.lr_pid_cont = PIDLearningRateController(target_clip_frac, clip_frac_kp, clip_frac_ki, clip_frac_kd, min_lr, max_lr)
+        self.lr_pid_cont = PIDLearningRateController(target_clip_frac, clip_frac_kp, clip_frac_ki, clip_frac_kd, min_lr,
+                                                     max_lr)
         self.target_clip_frac = target_clip_frac
 
         self.running_rew_mean = 0
@@ -228,7 +230,7 @@ class PPO:
 
                 self.frozen_iterations -= 1
 
-            self.rollout_generator.update_parameters(self.agent.actor, iteration-1, self.total_steps)  # noqa
+            self.rollout_generator.update_parameters(self.agent.actor, iteration - 1, self.total_steps)  # noqa
 
             # calculate years for graph
             # if self.tick_skip_starts is not None:
@@ -242,7 +244,7 @@ class PPO:
 
             # add reward log outputs here with commit false
             if self.reward_logging_dir is not None:
-                self.log_rewards(iteration-1)
+                self.log_rewards(iteration - 1)
 
             self.total_steps += self.n_steps  # size
             t1 = time.time()
@@ -250,7 +252,7 @@ class PPO:
             if t1 - last_wandb_call > self.wandb_wait_btwn:
                 commit = True
             self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps},
-                            step=iteration-1, commit=commit)
+                            step=iteration - 1, commit=commit)
             print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
 
             # pr.disable()
@@ -315,7 +317,7 @@ class PPO:
                     else:
                         avg_dict[key] = sum(value) / num_players
 
-                # split into blue and orange
+                    # split into blue and orange
                     if data.get("kickoff"):
                         if key in avg_dict_blue:
                             avg_dict_blue[key] = (avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1)
@@ -325,7 +327,6 @@ class PPO:
                             avg_dict_orange[key] = (avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1)
                         else:
                             avg_dict_orange[key] = (sum(value[mid:]) / mid)
-
 
                 fh.close()
                 os.unlink(file)
@@ -370,6 +371,7 @@ class PPO:
 
         # sorted_dict = dict(sorted(log_dict.items()))  #  wandb doesn't respect this anyway
         self.logger.log(log_dict, step=iteration, commit=False)
+
     def evaluate_actions(self, observations, actions):
         """
         Calculate Log Probability and Entropy of actions
@@ -379,6 +381,13 @@ class PPO:
 
         log_prob = self.agent.actor.log_prob(dist, actions)
         entropy = self.agent.actor.entropy(dist, actions)
+
+        if self.extra_prints:
+            print(f"log prob mean: {log_prob.mean()}  min: {log_prob.min()}  max: {log_prob.max()}")
+            print(f"entropy mean: {entropy.mean()}  min: {entropy.min()}  max: {entropy.max()}")
+            print(
+                f"dist (eval actions) prob min: {dist.probs.min()}  mean min: {dist.mean.min()}  mean max: {dist.mean.max()}")
+            print(f"dist (eval actions) prob max: {dist.probs.max()}, prob mean: {dist.probs.mean()}")
 
         entropy = -torch.mean(entropy)
         return log_prob, entropy, dist
@@ -567,7 +576,8 @@ class PPO:
                 diff_log_prob = log_prob - old_log_prob
                 #  stabilize the ratio for small log prob
                 ratio = torch.where(diff_log_prob.abs() < 0.00005, 1 + diff_log_prob, torch.exp(diff_log_prob))
-
+                if self.extra_prints:
+                    print(f"ratio.min is {ratio.min()}  max is {ratio.max()}  mean is {ratio.mean()}")
                 values_pred = self.agent.critic(obs)
 
                 values_pred = th.squeeze(values_pred)
@@ -651,7 +661,9 @@ class PPO:
                       self.agent.optimizer.param_groups[1]["lr"])
             else:
                 orig_actor = self.agent.optimizer.param_groups[0]["lr"]
-                self.agent.optimizer.param_groups[0]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n, self.agent.optimizer.param_groups[0]["lr"])
+                self.agent.optimizer.param_groups[0]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n,
+                                                                                     self.agent.optimizer.param_groups[
+                                                                                         0]["lr"])
                 # self.agent.optimizer.param_groups[1]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n, self.agent.optimizer.param_groups[1]["lr"])
                 self.agent.optimizer.param_groups[1]["lr"] = self.agent.optimizer.param_groups[0]["lr"]
                 after_actor = self.agent.optimizer.param_groups[0]["lr"]
@@ -685,8 +697,6 @@ class PPO:
                              for i in range(len(self.kl_models_weights))})
 
         self.logger.log(log_dict, step=iteration, commit=False)  # Is committed after when calculating fps
-
-
 
     def load(self, load_location, continue_iterations=True):
         """
@@ -750,7 +760,6 @@ class PPO:
         self.agent.optimizer.param_groups[0]["lr"] = 0
 
 
-
 # adapted from AechPro distrib-rl by AechPro and SomeRando
 # https://github.com/AechPro/distrib-rl/blob/main/distrib_rl/policy_optimization/learning_rate_controllers/pid_learning_rate_controller.py
 class PIDLearningRateController(object):
@@ -767,7 +776,6 @@ class PIDLearningRateController(object):
         self.integral = 0
 
     def adjust(self, mean_clip, current_lr):
-
         # clip_target = self.clip_target
 
         # mean_lr = 0
@@ -775,7 +783,6 @@ class PIDLearningRateController(object):
         mean_clip = min(mean_clip, self.max_clip_error)
 
         error = self.target - mean_clip
-        
 
         proportional = error * self.kp
 
