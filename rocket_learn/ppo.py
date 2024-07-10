@@ -279,6 +279,7 @@ class PPO:
         total_dict_orange = {}
         avg_dict_blue = {}
         avg_dict_orange = {}
+        abs_dict ={}
         # require minimum number of files
         if len(files) < 50:
             return
@@ -297,8 +298,10 @@ class PPO:
                 for key, value in data.get("RewardSum").items():
                     if key in total_dict:
                         total_dict[key] += sum(value) / num_players
+                        abs_dict[key] += sum(abs(value)) / num_players
                     else:
                         total_dict[key] = sum(value) / num_players
+                        abs_dict[key] = sum(abs(value)) / num_players
                     if data.get("kickoff"):
                         if key in total_dict_blue:
                             total_dict_blue[key] += (sum(value[:mid]) / mid) / num_players
@@ -340,6 +343,8 @@ class PPO:
             total_dict_blue[key] = value / num_files
         for key, value in total_dict_orange.items():
             total_dict_orange[key] = value / num_files
+        for key, value in abs_dict.items():
+            abs_dict[key] = value / num_files
 
         # thanks to WaddlestheTimePig for this idea
         # p = np.polyfit(slider_vals, ep_rew_avgs, 1)
@@ -368,6 +373,8 @@ class PPO:
             log_dict.update({f"rewards_step_team/{key}_blue": value})
         for key, value in avg_dict_orange.items():
             log_dict.update({f"rewards_step_team/{key}_orange": value})
+        for key, value in abs_dict.items():
+            log_dict.update({f"rewards_ep_abs/{key}": value})
 
         # sorted_dict = dict(sorted(log_dict.items()))  #  wandb doesn't respect this anyway
         self.logger.log(log_dict, step=iteration, commit=False)
