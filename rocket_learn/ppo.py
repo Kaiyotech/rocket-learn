@@ -298,10 +298,10 @@ class PPO:
                 for key, value in data.get("RewardSum").items():
                     if key in total_dict:
                         total_dict[key] += sum(value) / num_players
-                        abs_dict[key] += sum(abs(value)) / num_players
+                        abs_dict[key] += sum(abs(v) for v in value) / num_players
                     else:
                         total_dict[key] = sum(value) / num_players
-                        abs_dict[key] = sum(abs(value)) / num_players
+                        abs_dict[key] = sum(abs(v) for v in value) / num_players
                     if data.get("kickoff"):
                         if key in total_dict_blue:
                             total_dict_blue[key] += (sum(value[:mid]) / mid) / num_players
