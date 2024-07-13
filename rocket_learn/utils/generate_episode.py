@@ -1,9 +1,10 @@
 import os
+import random
+import string
 from typing import List
 
 import numpy as np
-import random
-import string
+import pretrained_agents.Opti.Opti_submodel
 import torch
 from rlgym_sim.gym import Gym
 from rlgym_sim.utils.reward_functions.common_rewards import ConstantReward
@@ -14,10 +15,8 @@ from rocket_learn.agent.policy import Policy
 from rocket_learn.agent.pretrained_policy import HardcodedAgent
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
-from rocket_learn.utils.util import make_python_state, gamestate_to_replay_array
 from rocket_learn.utils.truncated_condition import TruncatedCondition
-
-import pretrained_agents.Opti.Opti_submodel
+from rocket_learn.utils.util import gamestate_to_replay_array, make_python_state
 
 # import pickle
 
@@ -26,7 +25,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                      progress=False, rust_sim=False, infinite_boost_odds=0, streamer=False,
                      send_gamestates=False, reward_stage=0, gather_data=False, selector=False,
                      ngp_reward=None, selector_parser=None,
-                     selector_skip_k=None,
+                     selector_skip_k=None, min_learnable_action_prob=None,
                      ) -> (
         List[ExperienceBuffer], int):
     """
@@ -38,7 +37,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         progress = None
     # TODO allow evaluate with rust later by providing these values or bypassing
     if evaluate:  # Change setup temporarily to play a normal game (approximately)
-        from from_rlgym_or_tools.game_condition import GameCondition  # tools is an optional dependency
+        from from_rlgym_or_tools.game_condition import (
+            GameCondition,  # tools is an optional dependency
+        )
         terminals = env._match._terminal_conditions  # noqa
         reward = env._match._reward_fn  # noqa
         game_condition = GameCondition(seconds_per_goal_forfeit=10 * 3,  # noqa
@@ -132,6 +133,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         last_actions = [None] * len(policies)
         if selector:
             last_model_action = torch.tensor([[random.choice(range(num_submodels))] for _ in range(len(policies))], dtype=torch.long)
+        min_learnable_action_logprob = None if min_learnable_action_prob is None else torch.log(torch.as_tensor(min_learnable_action_prob))
         while True:
             all_indices = []
             all_actions = []
@@ -339,7 +341,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             # Might be different if only one agent?
             if not evaluate and ngp_reward is None:  # Evaluation matches can be long, no reason to keep them in memory
                 for exp_buf, obs, act, rew, log_prob in zip(rollouts, old_obs, all_indices, rewards, all_log_probs):
-                    exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, info)
+                    exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, min_learnable_action_logprob is None or min_learnable_action_logprob <= log_prob, info)
                     # if not rust_sim:
                     # exp_buf.add_step(obs, act, rew, done, log_prob, info)
                     # else:
@@ -377,7 +379,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                                                                                         ):
                         for exp_buf, old_obs, indices, rew, log_prob in zip(rollouts, old_obs_list, indices_list, rewards_list,
                                                                    log_probs_list):
-                            exp_buf.add_step(old_obs, indices, rew, done, log_prob, my_info)
+                            exp_buf.add_step(old_obs, indices, rew, done, log_prob, min_learnable_action_logprob is None or min_learnable_action_logprob <= log_prob, my_info)
                 # if not rust_sim:
                 result += info["result"]
                 if info["result"] > 0:

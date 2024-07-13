@@ -80,6 +80,7 @@ class RedisRolloutWorker:
                  ngp_reward=None,
                  selector=False,
                  selector_parser=None,
+                 min_learnable_action_prob=None,
                  ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
@@ -88,6 +89,7 @@ class RedisRolloutWorker:
         self.ngp_reward = ngp_reward
         self.selector = selector
         self.selector_parser = selector_parser
+        self.min_learnable_action_prob = min_learnable_action_prob
         if self.selector:
             assert self.selector_parser is not None
 
@@ -448,6 +450,7 @@ class RedisRolloutWorker:
                         selector_parser=self.selector_parser,
                         ngp_reward=self.ngp_reward,
                         selector_skip_k=selector_skips,
+                        min_learnable_action_prob=self.min_learnable_action_prob
                     )
 
                     if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason

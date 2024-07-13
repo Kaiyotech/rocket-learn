@@ -200,8 +200,8 @@ class PPO:
                         wasted_data += self.rollout_generator.wasted_data  # noqa
                         old_data += self.rollout_generator.old_data  # noqa
                         new_data += self.rollout_generator.new_data  # noqa
-                        if rollout.size() > 0:
-                            size += rollout.size()
+                        if rollout.learnable_size() > 0:
+                            size += rollout.learnable_size()
                             # progress.update(rollout.size())
                             yield rollout
                     except StopIteration:
@@ -468,6 +468,7 @@ class PPO:
             log_probs = np.stack(buffer.log_probs)
             rewards = np.stack(buffer.rewards)
             dones = np.stack(buffer.dones)
+            learnable_mask = np.stack(buffer.learnable)
 
             size = rewards.shape[0]
 
@@ -481,11 +482,11 @@ class PPO:
                     action_count[value] += counts[i]
                 action_changes += (np.diff(flat_actions) != 0).sum()
 
-            obs_tensors.append(obs_tensor)
-            act_tensors.append(th.from_numpy(actions))
-            log_prob_tensors.append(th.from_numpy(log_probs))
-            returns_tensors.append(th.from_numpy(returns))
-            rewards_tensors.append(th.from_numpy(rewards))
+            obs_tensors.append(obs_tensor[learnable_mask])
+            act_tensors.append(th.from_numpy(actions[learnable_mask]))
+            log_prob_tensors.append(th.from_numpy(log_probs[learnable_mask]))
+            returns_tensors.append(th.from_numpy(returns[learnable_mask]))
+            rewards_tensors.append(th.from_numpy(rewards[learnable_mask]))
 
             ep_rewards.append(rewards.sum())
             ep_steps.append(size)
