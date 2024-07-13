@@ -393,7 +393,7 @@ class PPO:
             print(f"log prob mean: {log_prob.mean()}  min: {log_prob.min()}  max: {log_prob.max()}")
             print(f"entropy mean: {entropy.mean()}  min: {entropy.min()}  max: {entropy.max()}")
             print(
-                f"dist (eval actions) prob min: {dist.probs.min()}  mean min: {dist.mean.min()}  mean max: {dist.mean.max()}")
+                f"dist (eval actions) prob min: {dist.probs.min()}")
             print(f"dist (eval actions) prob max: {dist.probs.max()}, prob mean: {dist.probs.mean()}")
 
         entropy = -torch.mean(entropy)
@@ -595,6 +595,10 @@ class PPO:
                 policy_loss_1 = adv * ratio
                 low_side = 1 - self.clip_range
                 policy_loss_2 = adv * th.clamp(ratio, low_side, 1 / low_side)
+                if self.extra_prints:
+                    print(f"Policy_loss_1: mean: {policy_loss_1.mean()} min: {policy_loss_1.min()} max: {policy_loss_1.max()}")
+                    print(
+                        f"Policy_loss_2: mean: {policy_loss_2.mean()} min: {policy_loss_2.min()} max: {policy_loss_2.max()}")
                 policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
 
                 # **If we want value clipping, add it here**
