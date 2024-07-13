@@ -231,7 +231,7 @@ def decode_buffers(enc_buffers, versions, has_obs, has_states, has_rewards,
             obs_builder.add_actions(obs, prev_actions)
             buffers = [
                 ExperienceBuffer(observations=[obs[i]], actions=actions[i], rewards=rewards[i], dones=dones[i],
-                                 log_probs=log_probs[i])
+                                 log_probs=log_probs[i], learnable=learnable[i])
                 for i in range(len(obs))
             ]
             return buffers, game_states
@@ -278,7 +278,7 @@ def decode_buffers(enc_buffers, versions, has_obs, has_states, has_rewards,
                     else:
                         rew = rewards[i][s]
                     buffers[i].add_step(
-                        old_obs[i], actions[i][s], rew, final, log_probs[i][s], {"state": gs})
+                        old_obs[i], actions[i][s], rew, final, log_probs[i][s], learnable[i][s], {"state": gs})
                     obss.append(obs)
                 i += 1
 
@@ -292,6 +292,6 @@ def decode_buffers(enc_buffers, versions, has_obs, has_states, has_rewards,
                                  rewards=rewards[i],
                                  dones=dones[i],
                                  log_probs=log_probs[i],
-                                 learnable=learnable)
+                                 learnable=learnable[i])
             )
         return buffers, game_states
