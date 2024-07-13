@@ -1,21 +1,21 @@
 # Constants for consistent key lookup
 import pickle
 import zlib
-import lz4.frame
-from typing import List, Optional, Union, Dict
+from typing import Dict, List, Optional, Union
 
+import lz4.frame
+import msgpack
+import msgpack_numpy as m
 import numpy as np
 from redis import Redis
 from rlgym_sim.utils.gamestates import GameState
-from trueskill import Rating, SIGMA
+from trueskill import SIGMA, Rating
 
-from rocket_learn.agent.types import PretrainedAgents
 from rocket_learn.agent.discrete_policy import DiscretePolicy
+from rocket_learn.agent.types import PretrainedAgents
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.batched_obs_builder import BatchedObsBuilder
 from rocket_learn.utils.gamestate_encoding import encode_gamestate
-import msgpack
-import msgpack_numpy as m
 
 PRETRAINED_QUALITIES = "pretrained-qualities-{}"
 QUALITIES = "qualities-{}"
@@ -168,9 +168,11 @@ def encode_buffers(buffers: List[ExperienceBuffer], return_obs=True, return_stat
 
     actions = np.asarray([buffer.actions for buffer in buffers])
     log_probs = np.asarray([buffer.log_probs for buffer in buffers])
+    learnable = np.asarray([buffer.learnable for buffer in buffers])
     dones = np.asarray([buffer.dones for buffer in buffers])
     res.append(actions)
     res.append(log_probs)
+    res.append(learnable)
     res.append(dones)
 
     return res
@@ -208,6 +210,8 @@ def decode_buffers(enc_buffers, versions, has_obs, has_states, has_rewards,
     actions = enc_buffers[i]
     i += 1
     log_probs = enc_buffers[i]
+    i += 1
+    learnable = enc_buffers[i]
     i += 1
     dones = enc_buffers[i]
     i += 1
@@ -287,6 +291,7 @@ def decode_buffers(enc_buffers, versions, has_obs, has_states, has_rewards,
                                  actions=actions[i],
                                  rewards=rewards[i],
                                  dones=dones[i],
-                                 log_probs=log_probs[i])
+                                 log_probs=log_probs[i],
+                                 learnable=learnable)
             )
         return buffers, game_states
