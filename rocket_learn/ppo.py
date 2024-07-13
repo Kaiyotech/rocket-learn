@@ -602,6 +602,7 @@ class PPO:
 
                 if entropy is None:
                     # Approximate entropy when no analytical form
+                    print("Entropy is None, approximating")
                     entropy_loss = -th.mean(-log_prob)
                 else:
                     entropy_loss = entropy
