@@ -458,7 +458,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         # do selector schedule based on n_updates here
         if self.selector_skip_schedule is not None:
             self.selector_skip_k = self.selector_skip_schedule(n_updates)
-            new_seconds = test_selector_skip(10_000, self.selector_skip_k)
+            new_seconds = test_selector_skip(100_000, self.selector_skip_k)
             self.logger.log({"Selector_skip_seconds": new_seconds}, commit=False)
             self.redis.set("selector_skip_k", self.selector_skip_k)
 

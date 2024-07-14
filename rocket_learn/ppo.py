@@ -444,6 +444,7 @@ class PPO:
         ep_steps = []
         action_count = np.asarray([0] * self.num_actions)
         action_changes = 0
+        num_unlearnable = 0
 
         n = 0
 
@@ -469,6 +470,7 @@ class PPO:
             rewards = np.stack(buffer.rewards)
             dones = np.stack(buffer.dones)
             learnable_mask = np.stack(buffer.learnable)
+            num_unlearnable += len(learnable_mask) - np.sum(learnable_mask)
 
             size = rewards.shape[0]
 
@@ -481,8 +483,10 @@ class PPO:
                 for i, value in enumerate(unique):
                     action_count[value] += counts[i]
                 action_changes += (np.diff(flat_actions) != 0).sum()
-
-            obs_tensors.append(obs_tensor[learnable_mask])
+            if isinstance(obs_tensor, tuple):
+                obs_tensors.append(tuple(tensor[learnable_mask] for tensor in obs_tensor))
+            else:
+                obs_tensors.append(obs_tensor[learnable_mask])
             act_tensors.append(th.from_numpy(actions[learnable_mask]))
             log_prob_tensors.append(th.from_numpy(log_probs[learnable_mask]))
             returns_tensors.append(th.from_numpy(returns[learnable_mask]))
@@ -502,6 +506,7 @@ class PPO:
             "submodel_swaps/action_changes": action_changes / total_steps,
             "ppo/mean_reward_per_step": ep_rewards.mean() / ep_steps.mean(),
             "ppo/abs_ep_reward_mean": np.abs(ep_rewards).sum() / ep_steps.mean(),
+            "ppo/unlearnable_count": num_unlearnable,
 
         }, step=iteration, commit=False)
 
