@@ -125,6 +125,8 @@ class RedisRolloutWorker:
             self.selector_skip_k = float(self.redis.get("selector_skip_k"))
             self.selector_skip_probability_table_size = selector_skip_probability_table_size
             self.selector_skip_probability_table = generate_selector_skip_probability_table(selector_skip_probability_table_size, selector_skip_k)
+        else:
+            self.selector_skip_probability_table = None
         self.available_version = None
 
         self.matchmaker = matchmaker

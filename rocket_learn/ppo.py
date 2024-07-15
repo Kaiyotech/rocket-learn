@@ -448,7 +448,7 @@ class PPO:
                                                                                       self.rollout_generator.selector_skip_probability_table)
         selector_choice_probs = th.as_tensor(selector_choice_probs, device='cuda')
         dist = self.agent.actor.get_action_distribution(trajectory_observations)
-        dist_entropy = dist.entropy()
+        dist_entropy = dist.entropy()[:, 0]
         log_prob_tensors = []
         entropy_tensors = []
         for step, action in enumerate(trajectory_actions):
@@ -695,6 +695,7 @@ class PPO:
                     if self.is_selector:
                         log_prob = cur_policy_step_log_prob_batch[i: i + self.minibatch_size]
                         entropy = cur_policy_step_entropy_batch[i: i + self.minibatch_size]
+                        entropy = entropy.sum(dim=-1)
                         dist = None
                     else:
                         log_prob, entropy, dist = self.evaluate_actions(
