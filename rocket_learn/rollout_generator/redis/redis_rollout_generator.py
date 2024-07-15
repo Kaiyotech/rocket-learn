@@ -23,6 +23,7 @@ from rocket_learn.rollout_generator.redis.utils import decode_buffers, _unserial
     get_pretrained_rating, get_pretrained_ratings, add_pretrained_ratings, _ALL, LATEST_RATING_ID, EXPERIENCE_PER_MODE, \
     TOTAL_TIMESTEPS, REWARD_STAGE, OPPONENT_MODEL_SELECTOR_SKIP
 from rocket_learn.utils.stat_trackers.stat_tracker import StatTracker
+from rocket_learn.utils.util import generate_selector_skip_probability_table
 
 
 class RedisRolloutGenerator(BaseRolloutGenerator):
@@ -49,6 +50,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             stat_trackers: Optional[List[StatTracker]] = None,
             selector_skip_k=None,
             selector_skip_schedule=None,
+            selector_skip_probability_table_size=None,
     ):
         self.lastsave_ts = None
         self.name = name
@@ -56,6 +58,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         self.redis = redis
         self.selector_skip_k = selector_skip_k
         self.selector_skip_schedule = None
+        self.selector_skip_probability_table_size = selector_skip_probability_table_size
         if self.selector_skip_k is not None:
             self.selector_skip_schedule = selector_skip_schedule
             # do selector schedule based on n_updates here
@@ -63,6 +66,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             n_updates = 0 if n_updates is None else int(n_updates)
             self.selector_skip_k = self.selector_skip_schedule(n_updates)
             self.redis.set("selector_skip_k", self.selector_skip_k)
+            self.selector_skip_probability_table = generate_selector_skip_probability_table(selector_skip_probability_table_size, selector_skip_k)
         else:
             self.redis.delete("selector_skip_k")
         self.red_pipe = self.redis.pipeline()
@@ -461,6 +465,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             new_seconds = test_selector_skip(100_000, self.selector_skip_k)
             self.logger.log({"Selector_skip_seconds": new_seconds}, commit=False)
             self.redis.set("selector_skip_k", self.selector_skip_k)
+            self.selector_skip_probability_table = generate_selector_skip_probability_table(self.selector_skip_probability_table_size, self.selector_skip_k)
 
         if n_updates % self.model_freq == 0:
             print("Adding model to pool...")

@@ -1,29 +1,41 @@
+import copy
 import functools
 import itertools
 import os
+import sqlite3 as sql
 import time
-import copy
 from threading import Thread
 from uuid import uuid4
 
-import sqlite3 as sql
-
 import numpy as np
-
 from redis import Redis
-
 from tabulate import tabulate
 
 import rocket_learn.agent.policy
+import rocket_learn.utils.generate_episode
 from rocket_learn.agent.discrete_policy import DiscretePolicy
 from rocket_learn.agent.types import PretrainedAgents
-import rocket_learn.utils.generate_episode
 from rocket_learn.matchmaker.base_matchmaker import BaseMatchmaker
-from rocket_learn.rollout_generator.redis.utils import _unserialize_model, MODEL_LATEST, WORKER_IDS, OPPONENT_MODELS, \
-    VERSION_LATEST, _serialize, ROLLOUTS, encode_buffers, decode_buffers, get_rating, get_ratings, LATEST_RATING_ID, \
-    EXPERIENCE_PER_MODE, REWARD_STAGE, _unserialize, OPPONENT_MODEL_SELECTOR_SKIP
-from rocket_learn.utils.util import probability_NvsM
+from rocket_learn.rollout_generator.redis.utils import (
+    EXPERIENCE_PER_MODE,
+    LATEST_RATING_ID,
+    MODEL_LATEST,
+    OPPONENT_MODEL_SELECTOR_SKIP,
+    OPPONENT_MODELS,
+    REWARD_STAGE,
+    ROLLOUTS,
+    VERSION_LATEST,
+    WORKER_IDS,
+    _serialize,
+    _unserialize,
+    _unserialize_model,
+    decode_buffers,
+    encode_buffers,
+    get_rating,
+    get_ratings,
+)
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
+from rocket_learn.utils.util import probability_NvsM, generate_selector_skip_probability_table
 
 
 class RedisRolloutWorker:
@@ -50,38 +62,51 @@ class RedisRolloutWorker:
      :param selector_skip_k: value to control the tick skip probability of the selector
     """
 
-    def __init__(self, redis: Redis, name: str, match, matchmaker: BaseMatchmaker,
-                 submodel_name="GP",
-                 evaluation_prob=0.01, sigma_target=1,
-                 dynamic_gm=True, streamer_mode=False, send_gamestates=True,
-                 send_obs=True, scoreboard=None, pretrained_agents: PretrainedAgents = None,
-                 human_agent=None, force_paging=False, auto_minimize=True,
-                 local_cache_name=None,
-                 force_old_deterministic=False,
-                 deterministic_streamer=False,
-                 gamemode_weights=None,
-                 batch_mode=False,
-                 step_size=40_000,
-                 pipeline_limit_bytes=25_000_000,
-                 gamemode_weight_ema_alpha=0.02,
-                 eval_setter=None,
-                 selector_skip_k=None,
-                 simulator=False,
-                 dodge_deadzone=0.5,
-                 live_progress=True,
-                 tick_skip=8,
-                 rust_sim=False,
-                 team_size=3,
-                 spawn_opponents=True,
-                 infinite_boost_odds=0,
-                 reward_logging=False,
-                 visualize=False,
-                 gather_data=False,
-                 ngp_reward=None,
-                 selector=False,
-                 selector_parser=None,
-                 min_learnable_action_prob=None,
-                 ):
+    def __init__(
+        self,
+        redis: Redis,
+        name: str,
+        match,
+        matchmaker: BaseMatchmaker,
+        submodel_name="GP",
+        evaluation_prob=0.01,
+        sigma_target=1,
+        dynamic_gm=True,
+        streamer_mode=False,
+        send_gamestates=True,
+        send_obs=True,
+        scoreboard=None,
+        pretrained_agents: PretrainedAgents = None,
+        human_agent=None,
+        force_paging=False,
+        auto_minimize=True,
+        local_cache_name=None,
+        force_old_deterministic=False,
+        deterministic_streamer=False,
+        gamemode_weights=None,
+        batch_mode=False,
+        step_size=40_000,
+        pipeline_limit_bytes=25_000_000,
+        gamemode_weight_ema_alpha=0.02,
+        eval_setter=None,
+        selector_skip_k=None,
+        simulator=False,
+        dodge_deadzone=0.5,
+        live_progress=True,
+        tick_skip=8,
+        rust_sim=False,
+        team_size=3,
+        spawn_opponents=True,
+        infinite_boost_odds=0,
+        reward_logging=False,
+        visualize=False,
+        gather_data=False,
+        ngp_reward=None,
+        selector=False,
+        selector_parser=None,
+        min_learnable_action_prob=None,
+        selector_skip_probability_table_size=None
+    ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
         self.name = name
@@ -98,6 +123,8 @@ class RedisRolloutWorker:
         self.selector_skip_k = selector_skip_k
         if self.selector_skip_k is not None:
             self.selector_skip_k = float(self.redis.get("selector_skip_k"))
+            self.selector_skip_probability_table_size = selector_skip_probability_table_size
+            self.selector_skip_probability_table = generate_selector_skip_probability_table(selector_skip_probability_table_size, selector_skip_k)
         self.available_version = None
 
         self.matchmaker = matchmaker
@@ -133,20 +160,23 @@ class RedisRolloutWorker:
         self.dynamic_gm = dynamic_gm
         self.gamemode_weights = gamemode_weights
         if self.gamemode_weights is None:
-            self.gamemode_weights = {'1v1': 1 / 3, '2v2': 1 / 3, '3v3': 1 / 3}
-        assert np.isclose(sum(self.gamemode_weights.values()),
-                          1), "gamemode_weights must sum to 1"
+            self.gamemode_weights = {"1v1": 1 / 3, "2v2": 1 / 3, "3v3": 1 / 3}
+        assert np.isclose(
+            sum(self.gamemode_weights.values()), 1
+        ), "gamemode_weights must sum to 1"
         self.target_weights = copy.copy(self.gamemode_weights)
         # change weights from percentage of experience desired to percentage of gamemodes necessary (approx)
         self.current_weights = copy.copy(self.gamemode_weights)
         for k in self.current_weights.keys():
             b, o = k.split("v")
             self.current_weights[k] /= int(b)
-        self.current_weights = {k: self.current_weights[k] / (sum(self.current_weights.values()) + 1e-8) for k in
-                                self.current_weights.keys()}
+        self.current_weights = {
+            k: self.current_weights[k] / (sum(self.current_weights.values()) + 1e-8)
+            for k in self.current_weights.keys()
+        }
         self.mean_exp_grant = {}
         for k in self.gamemode_weights.keys():
-            b, o = k.split('v')
+            b, o = k.split("v")
             size = int(b) + int(o)
             self.mean_exp_grant[k] = 500 * size
         self.ema_alpha = gamemode_weight_ema_alpha
@@ -166,24 +196,33 @@ class RedisRolloutWorker:
 
         # currently doesn't rebuild, if the old is there, reuse it.
         if self.local_cache_name:
-            self.sql = sql.connect(
-                'redis-model-cache-' + local_cache_name + '.db')
+            self.sql = sql.connect("redis-model-cache-" + local_cache_name + ".db")
             # if the table doesn't exist in the database, make it
-            self.sql.execute("""
+            self.sql.execute(
+                """
                 CREATE TABLE if not exists MODELS (
                     id TEXT PRIMARY KEY,
                     parameters BLOB NOT NULL
                 );
-            """)
+            """
+            )
 
         if not self.streamer_mode:
-            print("Started worker", self.uuid, "on host", self.redis.connection_pool.connection_kwargs.get("host"),
-                  "under name", name)  # TODO log instead
+            print(
+                "Started worker",
+                self.uuid,
+                "on host",
+                self.redis.connection_pool.connection_kwargs.get("host"),
+                "under name",
+                name,
+            )  # TODO log instead
         else:
             print("Streaming mode set. Running silent.")
 
         self.scoreboard = scoreboard
-        state_setter = DynamicGMSetter(match._state_setter)  # noqa Rangler made me do it
+        state_setter = DynamicGMSetter(
+            match._state_setter
+        )  # noqa Rangler made me do it
         self.set_team_size = state_setter.set_team_size
         match._state_setter = state_setter
         self.match = match
@@ -192,29 +231,38 @@ class RedisRolloutWorker:
             from rlgym_sim.envs import Match
             from rlgym_sim.gym import Gym
             from rlgym_sim.utils.state_setters import DefaultState
+
             self.eval_setter = DefaultState()
-            self.env = rlgym_sim.gym.Gym(match=self.match, copy_gamestate_every_step=True,
-                                         dodge_deadzone=dodge_deadzone, tick_skip=tick_skip, gravity=1.0,
-                                         boost_consumption=1.0)
+            self.env = rlgym_sim.gym.Gym(
+                match=self.match,
+                copy_gamestate_every_step=True,
+                dodge_deadzone=dodge_deadzone,
+                tick_skip=tick_skip,
+                gravity=1.0,
+                boost_consumption=1.0,
+            )
             if visualize:
                 self.env.render()
         elif rust_sim:
             # need rust gym here
             import opti
+
             # TODO fix this for eval in Rust, or run them in python
             from rlgym_sim.utils.state_setters import DefaultState
+
             self.eval_setter = DefaultState()
-            self.env = opti.GymWrapper(tick_skip=tick_skip,
-                                           team_size=team_size,
-                                           gravity=1.0,
-                                           self_play=spawn_opponents,
-                                           boost_consumption_default=1.0,
-                                           send_gamestate=send_gamestates,
-                                           reward_logging=reward_logging,
-                                           visualize=visualize,
-                                           # copy_gamestate_every_step=True,
-                                           submodel_name=submodel_name,
-                                           )
+            self.env = opti.GymWrapper(
+                tick_skip=tick_skip,
+                team_size=team_size,
+                gravity=1.0,
+                self_play=spawn_opponents,
+                boost_consumption_default=1.0,
+                send_gamestate=send_gamestates,
+                reward_logging=reward_logging,
+                visualize=visualize,
+                # copy_gamestate_every_step=True,
+                submodel_name=submodel_name,
+            )
             # dodge_deadzone=dodge_deadzone,
             # seed=123)
             # self.set_team_size = self.env.set_team_size
@@ -223,10 +271,17 @@ class RedisRolloutWorker:
             from rlgym.gamelaunch import LaunchPreference
             from rlgym.gym import Gym
             from rlgym.utils.state_setters import DefaultState
+
             self.eval_setter = DefaultState()
-            self.env = Gym(match=self.match, pipe_id=os.getpid(), launch_preference=LaunchPreference.EPIC,
-                           use_injector=True, force_paging=force_paging, raise_on_crash=True,
-                           auto_minimize=auto_minimize)
+            self.env = Gym(
+                match=self.match,
+                pipe_id=os.getpid(),
+                launch_preference=LaunchPreference.EPIC,
+                use_injector=True,
+                force_paging=force_paging,
+                raise_on_crash=True,
+                auto_minimize=auto_minimize,
+            )
         # # TODO Remove this
         # self.rust_sim = True
         self.total_steps_generated = 0
@@ -238,12 +293,17 @@ class RedisRolloutWorker:
         # if not, pull from REDIS and store in disk cache
 
         if self.local_cache_name:
-            models = self.sql.execute("SELECT parameters FROM MODELS WHERE id == ?", (version,)).fetchall()
+            models = self.sql.execute(
+                "SELECT parameters FROM MODELS WHERE id == ?", (version,)
+            ).fetchall()
             if len(models) == 0:
                 bytestream = self.redis.hget(OPPONENT_MODELS, version)
                 model = _unserialize_model(bytestream)
 
-                self.sql.execute('INSERT INTO MODELS (id, parameters) VALUES (?, ?)', (version, bytestream))
+                self.sql.execute(
+                    "INSERT INTO MODELS (id, parameters) VALUES (?, ?)",
+                    (version, bytestream),
+                )
                 self.sql.commit()
             else:
                 # should only ever be 1 version of parameters
@@ -260,14 +320,20 @@ class RedisRolloutWorker:
 
     def select_gamemode(self, equal_likelihood):
 
-        emp_weight = {k: self.mean_exp_grant[k] / (sum(self.mean_exp_grant.values()) + 1e-8)
-                      for k in self.mean_exp_grant.keys()}
+        emp_weight = {
+            k: self.mean_exp_grant[k] / (sum(self.mean_exp_grant.values()) + 1e-8)
+            for k in self.mean_exp_grant.keys()
+        }
         cor_weight = {
-            k: self.gamemode_weights[k] / emp_weight[k] for k in self.gamemode_weights.keys()}
+            k: self.gamemode_weights[k] / emp_weight[k]
+            for k in self.gamemode_weights.keys()
+        }
         self.current_weights = {
-            k: cor_weight[k] / (sum(cor_weight.values()) + 1e-8) for k in cor_weight}
-        mode = np.random.choice(list(self.current_weights.keys()), p=list(
-            self.current_weights.values()))
+            k: cor_weight[k] / (sum(cor_weight.values()) + 1e-8) for k in cor_weight
+        }
+        mode = np.random.choice(
+            list(self.current_weights.keys()), p=list(self.current_weights.values())
+        )
         if equal_likelihood:
             mode = np.random.choice(list(self.current_weights.keys()))
         b, o = mode.split("v")
@@ -277,15 +343,17 @@ class RedisRolloutWorker:
     def make_table(versions, ratings, blue, orange):
         version_info = []
         for v, r in zip(versions, ratings):
-            if v == 'na':
-                version_info.append(['Human', "N/A"])
+            if v == "na":
+                version_info.append(["Human", "N/A"])
             else:
                 if isinstance(v, int):
                     v *= -1
                 version_info.append([v, f"{r.mu:.2f}±{2 * r.sigma:.2f}"])
 
         blue_versions, blue_ratings = list(zip(*version_info[:blue]))
-        orange_versions, orange_ratings = list(zip(*version_info[blue:])) if orange > 0 else list(((0,), ("N/A",)))
+        orange_versions, orange_ratings = (
+            list(zip(*version_info[blue:])) if orange > 0 else list(((0,), ("N/A",)))
+        )
 
         if blue < orange:
             blue_versions += ("",) * (orange - blue)
@@ -294,8 +362,11 @@ class RedisRolloutWorker:
             orange_versions += ("",) * (blue - orange)
             orange_ratings += ("",) * (blue - orange)
 
-        table_str = tabulate(list(zip(blue_versions, blue_ratings, orange_versions, orange_ratings)),
-                             headers=["Blue", "rating", "Orange", "rating"], tablefmt="rounded_outline")
+        table_str = tabulate(
+            list(zip(blue_versions, blue_ratings, orange_versions, orange_ratings)),
+            headers=["Blue", "rating", "Orange", "rating"],
+            tablefmt="rounded_outline",
+        )
 
         return table_str
 
@@ -360,10 +431,13 @@ class RedisRolloutWorker:
                 ratings = ["na"] * len(versions)
                 selector_skips = [None] * (blue + orange)
             else:
-                versions, ratings, evaluate, blue, orange = self.matchmaker.generate_matchup(self.redis,
-                                                                                             blue + orange,
-                                                                                             evaluate,
-                                                                                             )
+                versions, ratings, evaluate, blue, orange = (
+                    self.matchmaker.generate_matchup(
+                        self.redis,
+                        blue + orange,
+                        evaluate,
+                    )
+                )
                 agents = []
                 selector_skips = []
                 for i, version in enumerate(versions):
@@ -384,7 +458,9 @@ class RedisRolloutWorker:
                         else:
                             selected_agent = self._get_past_model(short_name)
                             if self.selector_skip_k is not None:
-                                selector_skip_agent = self.redis.hget(OPPONENT_MODEL_SELECTOR_SKIP, short_name)
+                                selector_skip_agent = self.redis.hget(
+                                    OPPONENT_MODEL_SELECTOR_SKIP, short_name
+                                )
                                 if selector_skip_agent is None:
                                     selector_skip_agent = self.selector_skip_k
                                 else:
@@ -392,9 +468,9 @@ class RedisRolloutWorker:
 
                             if self.force_old_deterministic and n_new != 0:
                                 versions[i] = versions[i].replace(
-                                    'stochastic', 'deterministic')
-                                version = version.replace(
-                                    'stochastic', 'deterministic')
+                                    "stochastic", "deterministic"
+                                )
+                                version = version.replace("stochastic", "deterministic")
 
                         if isinstance(selected_agent, DiscretePolicy):
                             if version.endswith("deterministic"):
@@ -416,17 +492,19 @@ class RedisRolloutWorker:
 
             if evaluate and not self.streamer_mode and self.human_agent is None:
                 print("EVALUATION GAME\n" + table_str)
-                result = rocket_learn.utils.generate_episode.generate_episode(self.env, agents,
-                                                                              evaluate=True,
-                                                                              scoreboard=self.scoreboard,
-                                                                              progress=self.live_progress,
-                                                                              rust_sim=self.rust_sim,
-                                                                              infinite_boost_odds=0,
-                                                                              selector=self.selector,
-                                                                              selector_parser=self.selector_parser,
-                                                                              selector_skip_k=selector_skips,
-                                                                              # eval_setter=self.eval_setter,
-                                                                              )
+                result = rocket_learn.utils.generate_episode.generate_episode(
+                    self.env,
+                    agents,
+                    evaluate=True,
+                    scoreboard=self.scoreboard,
+                    progress=self.live_progress,
+                    rust_sim=self.rust_sim,
+                    infinite_boost_odds=0,
+                    selector=self.selector,
+                    selector_parser=self.selector_parser,
+                    selector_skip_k=selector_skips,
+                    # eval_setter=self.eval_setter,
+                )
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
                 print()
@@ -435,25 +513,31 @@ class RedisRolloutWorker:
                     print("ROLLOUT\n" + table_str)
 
                 try:
-                    rollouts, result = rocket_learn.utils.generate_episode.generate_episode(
-                        self.env, agents,
-                        evaluate=False,
-                        scoreboard=self.scoreboard,
-                        rust_sim=self.rust_sim,
-                        progress=False,
-                        send_gamestates=self.send_gamestates,
-                        infinite_boost_odds=self.infinite_boost_odds,
-                        streamer=self.streamer_mode,
-                        reward_stage=self.reward_stage,
-                        gather_data=self.gather_data,
-                        selector=self.selector,
-                        selector_parser=self.selector_parser,
-                        ngp_reward=self.ngp_reward,
-                        selector_skip_k=selector_skips,
-                        min_learnable_action_prob=self.min_learnable_action_prob
+                    rollouts, result = (
+                        rocket_learn.utils.generate_episode.generate_episode(
+                            self.env,
+                            agents,
+                            evaluate=False,
+                            scoreboard=self.scoreboard,
+                            rust_sim=self.rust_sim,
+                            progress=False,
+                            send_gamestates=self.send_gamestates,
+                            infinite_boost_odds=self.infinite_boost_odds,
+                            streamer=self.streamer_mode,
+                            reward_stage=self.reward_stage,
+                            gather_data=self.gather_data,
+                            selector=self.selector,
+                            selector_parser=self.selector_parser,
+                            ngp_reward=self.ngp_reward,
+                            selector_skip_k=selector_skips,
+                            min_learnable_action_prob=self.min_learnable_action_prob,
+                            selector_skip_probability_table=self.selector_skip_probability_table
+                        )
                     )
 
-                    if len(rollouts[0].observations) <= 1:  # Happens sometimes, unknown reason
+                    if (
+                        len(rollouts[0].observations) <= 1
+                    ):  # Happens sometimes, unknown reason
                         print(" ** Rollout Generation Error: Restarting Generation ** ")
                         print()
                         continue
@@ -463,17 +547,19 @@ class RedisRolloutWorker:
 
                 if not self.rust_sim:
                     state = rollouts[0].infos[-2]["state"]
-                    goal_speed = np.linalg.norm(state.ball.linear_velocity) * 0.036  # kph
+                    goal_speed = (
+                        np.linalg.norm(state.ball.linear_velocity) * 0.036
+                    )  # kph
                 else:
                     goal_speed = -1
-                str_result = ('+' if result > 0 else "") + str(result)
+                str_result = ("+" if result > 0 else "") + str(result)
                 episode_exp = len(rollouts[0].observations) * len(rollouts)
                 self.total_steps_generated += episode_exp
                 if self.dynamic_gm:
                     old_exp = self.mean_exp_grant[f"{blue}v{orange}"]
                     self.mean_exp_grant[f"{blue}v{orange}"] = (
-                                                                      (
-                                                                              episode_exp - old_exp) * self.ema_alpha) + old_exp
+                        (episode_exp - old_exp) * self.ema_alpha
+                    ) + old_exp
                 post_stats = f"Rollout finished after {len(rollouts[0].observations)} steps ({self.total_steps_generated} total steps), result was {str_result}"
                 if result != 0:
                     post_stats += f", goal speed: {goal_speed:.2f} kph"
@@ -483,17 +569,29 @@ class RedisRolloutWorker:
                     print()
 
             if not self.streamer_mode and not self.batch_mode:
-                rollout_data = encode_buffers(rollouts,
-                                              return_obs=self.send_obs,
-                                              return_states=self.send_gamestates,
-                                              return_rewards=True)
+                rollout_data = encode_buffers(
+                    rollouts,
+                    return_obs=self.send_obs,
+                    return_states=self.send_gamestates,
+                    return_rewards=True,
+                )
                 # sanity_check = decode_buffers(rollout_data, versions,
                 #                               has_obs=False, has_states=True, has_rewards=True,
                 #                               obs_build_factory=lambda: self.match._obs_builder,
                 #                               rew_func_factory=lambda: self.match._reward_fn,
                 #                               act_parse_factory=lambda: self.match._action_parser)
-                rollout_bytes = _serialize((rollout_data, versions, self.uuid, self.name, result,
-                                            self.send_obs, self.send_gamestates, True))
+                rollout_bytes = _serialize(
+                    (
+                        rollout_data,
+                        versions,
+                        self.uuid,
+                        self.name,
+                        result,
+                        self.send_obs,
+                        self.send_gamestates,
+                        True,
+                    )
+                )
 
                 # while True:
                 # t.join()
@@ -502,7 +600,8 @@ class RedisRolloutWorker:
                     n_items = self.redis.rpush(ROLLOUTS, rollout_bytes)
                     if n_items >= 1000:
                         print(
-                            "Had to limit rollouts. Learner may have have crashed, or is overloaded")
+                            "Had to limit rollouts. Learner may have have crashed, or is overloaded"
+                        )
                         self.redis.ltrim(ROLLOUTS, -100, -1)
 
                 send()
@@ -516,20 +615,36 @@ class RedisRolloutWorker:
 
             elif not self.streamer_mode and self.batch_mode:
 
-                rollout_data = encode_buffers(rollouts,
-                                              return_obs=self.send_obs,
-                                              return_states=self.send_gamestates,
-                                              return_rewards=True)
-                rollout_bytes = _serialize((rollout_data, versions, self.uuid, self.name, result,
-                                            self.send_obs, self.send_gamestates, True))
+                rollout_data = encode_buffers(
+                    rollouts,
+                    return_obs=self.send_obs,
+                    return_states=self.send_gamestates,
+                    return_rewards=True,
+                )
+                rollout_bytes = _serialize(
+                    (
+                        rollout_data,
+                        versions,
+                        self.uuid,
+                        self.name,
+                        result,
+                        self.send_obs,
+                        self.send_gamestates,
+                        True,
+                    )
+                )
 
                 self.pipeline_size += len(rollout_bytes)
 
                 self.red_pipe.rpush(ROLLOUTS, rollout_bytes)
 
                 #  def send():
-                if (self.total_steps_generated - self.step_last_send) > self.step_size_limit or \
-                        len(self.red_pipe) > 100 or self.pipeline_size > self.pipeline_limit:
+                if (
+                    (self.total_steps_generated - self.step_last_send)
+                    > self.step_size_limit
+                    or len(self.red_pipe) > 100
+                    or self.pipeline_size > self.pipeline_limit
+                ):
                     self.red_pipe.get(VERSION_LATEST)
                     self.red_pipe.get(REWARD_STAGE)
                     result = self.red_pipe.execute()
@@ -539,11 +654,12 @@ class RedisRolloutWorker:
                     self.pipeline_size = 0
                     if n_items >= 1000:
                         print(
-                            "Had to limit rollouts. Learner may have have crashed, or is overloaded")
+                            "Had to limit rollouts. Learner may have have crashed, or is overloaded"
+                        )
                         self.redis.ltrim(ROLLOUTS, -100, -1)
                     self.step_last_send = self.total_steps_generated
 
                     # get new selector_skip from redis
                     if self.selector_skip_k is not None:
                         self.selector_skip_k = float(self.redis.get("selector_skip_k"))
-
+                        self.selector_skip_probability_table = generate_selector_skip_probability_table(self.selector_skip_probability_table_size, self.selector_skip_k)

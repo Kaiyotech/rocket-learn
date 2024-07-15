@@ -16,18 +16,31 @@ from rocket_learn.agent.pretrained_policy import HardcodedAgent
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 from rocket_learn.utils.truncated_condition import TruncatedCondition
-from rocket_learn.utils.util import gamestate_to_replay_array, make_python_state
+from rocket_learn.utils.util import gamestate_to_replay_array, make_python_state, calculate_prob_last_selector_action_at_step_for_step
 
 # import pickle
 
 
-def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=False, scoreboard=None,
-                     progress=False, rust_sim=False, infinite_boost_odds=0, streamer=False,
-                     send_gamestates=False, reward_stage=0, gather_data=False, selector=False,
-                     ngp_reward=None, selector_parser=None,
-                     selector_skip_k=None, min_learnable_action_prob=None,
-                     ) -> (
-        List[ExperienceBuffer], int):
+def generate_episode(
+    env: Gym,
+    policies,
+    eval_setter=DefaultState(),
+    evaluate=False,
+    scoreboard=None,
+    progress=False,
+    rust_sim=False,
+    infinite_boost_odds=0,
+    streamer=False,
+    send_gamestates=False,
+    reward_stage=0,
+    gather_data=False,
+    selector=False,
+    ngp_reward=None,
+    selector_parser=None,
+    selector_skip_k=None,
+    min_learnable_action_prob=None,
+    selector_skip_probability_table=None,
+) -> (List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
     """
@@ -40,11 +53,14 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         from from_rlgym_or_tools.game_condition import (
             GameCondition,  # tools is an optional dependency
         )
+
         terminals = env._match._terminal_conditions  # noqa
         reward = env._match._reward_fn  # noqa
-        game_condition = GameCondition(seconds_per_goal_forfeit=10 * 3,  # noqa
-                                       max_overtime_seconds=300,
-                                       max_no_touch_seconds=30)  # noqa
+        game_condition = GameCondition(
+            seconds_per_goal_forfeit=10 * 3,  # noqa
+            max_overtime_seconds=300,
+            max_no_touch_seconds=30,
+        )  # noqa
         env._match._terminal_conditions = [game_condition]  # noqa
         if isinstance(env._match._state_setter, DynamicGMSetter):  # noqa
             state_setter = env._match._state_setter.setter  # noqa
@@ -68,6 +84,11 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         send_gamestates = True
     if selector:
         send_gamestates = True  # needed for evals and everything
+        if not evaluate:
+            episode_action_distributions = [
+                torch.as_tensor([], dtype=torch.float32) for _ in policies
+            ]
+            steps_since_episode_start = 0
     if scoreboard is not None:
         random_resets = scoreboard.random_resets
         scoreboard.random_resets = not evaluate
@@ -76,19 +97,24 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         send_gamestates = True
     if gather_data:  # gathering data requires the gamestate
         send_gamestates = True
-        file_name = "gather_data\\" + ''.join(random.choice(string.ascii_lowercase) for i in range(16))
+        file_name = "gather_data\\" + "".join(
+            random.choice(string.ascii_lowercase) for i in range(16)
+        )
         to_save = []
     if not rust_sim:
         observations, info = env.reset(return_info=True)
     else:
-        observations, state = env.reset(len(policies) // 2, infinite_boost_odds=infinite_boost_odds,
-                                        send_gamestate=send_gamestates,
-                                        reward_stage=reward_stage)
-        info = {'result': 0.0}
+        observations, state = env.reset(
+            len(policies) // 2,
+            infinite_boost_odds=infinite_boost_odds,
+            send_gamestate=send_gamestates,
+            reward_stage=reward_stage,
+        )
+        info = {"result": 0.0}
         if send_gamestates:
-            info['state'] = make_python_state(state)
+            info["state"] = make_python_state(state)
         else:
-            info['state'] = None
+            info["state"] = None
         # observations = env.reset()
     sliders = None
     if streamer:
@@ -99,20 +125,18 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
 
     result = 0
 
-    last_state = info['state']  # game_state for obs_building of other agents
+    last_state = info["state"]  # game_state for obs_building of other agents
 
-    latest_policy_indices = [0 if isinstance(p, HardcodedAgent) else 1 for p in policies]
+    latest_policy_indices = [
+        0 if isinstance(p, HardcodedAgent) else 1 for p in policies
+    ]
     # rollouts for all latest_policies
     if not rust_sim:
         rollouts = [
-            ExperienceBuffer(infos=[info])
-            for _ in range(sum(latest_policy_indices))
+            ExperienceBuffer(infos=[info]) for _ in range(sum(latest_policy_indices))
         ]
     else:
-        rollouts = [
-            ExperienceBuffer()
-            for _ in range(sum(latest_policy_indices))
-        ]
+        rollouts = [ExperienceBuffer() for _ in range(sum(latest_policy_indices))]
 
     b = o = 0
     if gather_data:
@@ -132,8 +156,15 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
         do_selector = [True] * len(policies)
         last_actions = [None] * len(policies)
         if selector:
-            last_model_action = torch.tensor([[random.choice(range(num_submodels))] for _ in range(len(policies))], dtype=torch.long)
-        min_learnable_action_logprob = None if min_learnable_action_prob is None else torch.log(torch.as_tensor(min_learnable_action_prob))
+            last_model_action = torch.tensor(
+                [[random.choice(range(num_submodels))] for _ in range(len(policies))],
+                dtype=torch.long,
+            )
+        min_learnable_action_logprob = (
+            None
+            if min_learnable_action_prob is None
+            else torch.log(torch.as_tensor(min_learnable_action_prob))
+        )
         while True:
             all_indices = []
             all_actions = []
@@ -160,12 +191,16 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
             if not isinstance(observations, list):
                 observations = [observations]
             # this doesn't seem to be working, due to different locations of policy?
-            if not isinstance(policies[0], HardcodedAgent) and all(policy == policies[0] for policy in policies):
+            if not isinstance(policies[0], HardcodedAgent) and all(
+                policy == policies[0] for policy in policies
+            ):
                 # if True:
                 policy = policies[0]
                 if isinstance(observations[0], tuple):
-                    obs = tuple(np.concatenate([obs[i] for obs in observations], axis=0)
-                                for i in range(len(observations[0])))
+                    obs = tuple(
+                        np.concatenate([obs[i] for obs in observations], axis=0)
+                        for i in range(len(observations[0]))
+                    )
                 else:
                     # obs = np.concatenate(observations, axis=0)
                     # expand just for testing, do in obs builder normally?
@@ -175,6 +210,12 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 # obs = obs[:-1]
 
                 dist = policy.get_action_distribution(obs)
+                if selector and not evaluate:
+                    # TODO: Kaiyo, I am assuming that the dist.logits here is shaped like (N, A) where A is the size of your action space and N is the number of policies
+                    for index, probs in enumerate(dist.probs):
+                        episode_action_distributions[index] = torch.cat(
+                            (episode_action_distributions[index], probs), dim=0
+                        )
                 # to_dump = (obs, dist)
                 # fh = open("obs-dist.pkl", "ab")
                 # pickle.dump(to_dump, fh)
@@ -183,21 +224,31 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     action_indices = policy.sample_action(dist)
                     actions = policy.env_compatible(action_indices)
                 else:
-                    if do_selector[0]:
-                        action_indices = policy.sample_action(dist)
-                        last_model_action = action_indices
-
-                    else:
-                        action_indices = last_model_action
+                    potential_action_indices = policy.sample_action(dist)
+                    action_indices = []
+                    for idx, should_use in enumerate(do_selector):
+                        if should_use:
+                            action_indices.append(potential_action_indices[idx])
+                        else:
+                            action_indices.append(last_model_action[idx])
+                    action_indices = torch.as_tensor(action_indices)
 
                     # need to remove the prev model actions and add the prev actions
                     obs[0][:, 37:45] = np.array(actual_prev_actions)
                     obs = (obs[0][:, :-6], obs[1])
-                    actions = selector_parser.parse_actions(action_indices, last_state, obs)
+                    actions = selector_parser.parse_actions(
+                        action_indices, last_state, obs
+                    )
 
                 all_indices.extend(list(action_indices.numpy()))
                 all_actions.extend(list(actions))
-                log_probs = policy.log_prob(dist, action_indices)
+                if selector and not evaluate:
+                    log_probs = torch.zeros(len(episode_action_distributions), dtype=torch.float32)
+                    for idx, episode_action_distribution in enumerate(episode_action_distributions):
+                        log_probs[idx] = calculate_action_log_prob(episode_action_distribution, action_indices[idx], selector_skip_probability_table)
+                else:
+                    log_probs = policy.log_prob(dist, action_indices)
+
                 all_log_probs.extend(list(log_probs.numpy()))
             else:
                 index = 0
@@ -208,7 +259,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                     if isinstance(policy, HardcodedAgent):
                         actions = None
                         # No reason to build another obs, just use the rust one that's already built
-                        if isinstance(policy, pretrained_agents.Opti.Opti_submodel.Submodel):
+                        if isinstance(
+                            policy, pretrained_agents.Opti.Opti_submodel.Submodel
+                        ):
                             # remove model actions (if removed by selector) and add previous actions and put back mirror
                             if selector:
                                 obs[0][:, 37:45] = np.array(actual_prev_actions[index])
@@ -230,6 +283,11 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
 
                     elif isinstance(policy, Policy):
                         dist = policy.get_action_distribution(obs)
+                        if selector and not evaluate:
+                            # TODO: Kaiyo, I am assuming that the dist.logits here is shaped like (1, A) where A is the size of your action space
+                            episode_action_distributions[index] = torch.cat(
+                                (episode_action_distributions[index], dist.probs), dim=0
+                            )
                         if not selector:
                             action_indices = policy.sample_action(dist)[0]
                             actions = policy.env_compatible(action_indices)
@@ -244,11 +302,16 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                             # need to remove the prev model actions and add the prev actions
                             obs[0][:, 37:45] = np.array(actual_prev_actions[index])
                             obs = (obs[0][:, :-6], obs[1])
-                            actions = selector_parser.parse_actions(action_indices, last_state, obs)
+                            actions = selector_parser.parse_actions(
+                                action_indices, last_state, obs
+                            )
 
                         all_indices.extend(list(action_indices.numpy()))
                         all_actions.append(actions)
-                        log_probs = policy.log_prob(dist, action_indices)
+                        if selector and not evaluate:
+                            log_probs = calculate_action_log_prob(episode_action_distributions[index], action_indices, selector_skip_probability_table)
+                        else:
+                            log_probs = policy.log_prob(dist, action_indices)
                         all_log_probs.extend(list(log_probs.numpy()))
 
                     else:
@@ -261,7 +324,12 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 length = max([a.shape[0] for a in all_actions])
                 padded_actions = []
                 for a in all_actions:
-                    action = np.pad(a.astype('float64'), (0, length - a.size), 'constant', constant_values=np.NAN)
+                    action = np.pad(
+                        a.astype("float64"),
+                        (0, length - a.size),
+                        "constant",
+                        constant_values=np.NAN,
+                    )
                     padded_actions.append(action)
 
                 all_actions = padded_actions
@@ -272,8 +340,9 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 if sliders is not None:
                     slider_range = range(61, 65)
                     stream_obs[slider_range] = sliders
-                (slider_string, scoreboard_string) = print_stream_info(slider_string, scoreboard_string,
-                                                                       stream_obs)  # noqa
+                (slider_string, scoreboard_string) = print_stream_info(
+                    slider_string, scoreboard_string, stream_obs
+                )  # noqa
             if selector_skip_k is not None:
                 for i in range(len(do_selector)):
                     if not isinstance(policies[i], HardcodedAgent):
@@ -281,7 +350,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                         if policies[i].deterministic:
                             do_selector[i] = True
             else:
-                do_selector = [True] * 6
+                do_selector = [True] * len(policies)
             for i in range(len(tick)):
                 tick[i] = 0 if do_selector[i] else tick[i] + 1
 
@@ -298,18 +367,19 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
 
                 # state is a f32 vector of the state
                 if send_gamestates:
-                    info['state'] = make_python_state(state)
+                    info["state"] = make_python_state(state)
                     # print(f"state in python: {info['state']}")
                     # print(f"array in python: {state}")
                 else:
-                    info['state'] = None
+                    info["state"] = None
                 # pickle.dump((info['state'], gamestate_to_replay_array(info['state'])), fh_pickle)
                 if gather_data:
                     data_ticks_passed += 1
-                    if (data_ticks_passed > gather_data_ticks):
+                    if data_ticks_passed > gather_data_ticks:
                         data_ticks_passed = 0
                         gather_data_ticks = random.uniform(15, 45)
-                        to_save.append(gamestate_to_replay_array(info['state']))
+                        to_save.append(gamestate_to_replay_array(info["state"]))
+            steps_since_episode_start += 1
 
             # print(f"rewards in python are {rewards}")
 
@@ -328,20 +398,49 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 observations, rewards = [observations], [rewards]
 
             # prune data that belongs to old agents
-            old_obs = [a for i, a in enumerate(old_obs) if latest_policy_indices[i] == 1]
-            all_indices = [d for i, d in enumerate(all_indices) if latest_policy_indices[i] == 1]
-            rewards = [r for i, r in enumerate(rewards) if latest_policy_indices[i] == 1]
-            all_log_probs = [r for i, r in enumerate(all_log_probs) if latest_policy_indices[i] == 1]
+            old_obs = [
+                a for i, a in enumerate(old_obs) if latest_policy_indices[i] == 1
+            ]
+            all_indices = [
+                d for i, d in enumerate(all_indices) if latest_policy_indices[i] == 1
+            ]
+            rewards = [
+                r for i, r in enumerate(rewards) if latest_policy_indices[i] == 1
+            ]
+            all_log_probs = [
+                r for i, r in enumerate(all_log_probs) if latest_policy_indices[i] == 1
+            ]
 
-            assert len(old_obs) == len(all_indices), str(len(old_obs)) + " obs, " + str(len(all_indices)) + " ind"
-            assert len(old_obs) == len(rewards), str(len(old_obs)) + " obs, " + str(len(rewards)) + " ind"
-            assert len(old_obs) == len(all_log_probs), str(len(old_obs)) + " obs, " + str(len(all_log_probs)) + " ind"
-            assert len(old_obs) == len(rollouts), str(len(old_obs)) + " obs, " + str(len(rollouts)) + " ind"
+            assert len(old_obs) == len(all_indices), (
+                str(len(old_obs)) + " obs, " + str(len(all_indices)) + " ind"
+            )
+            assert len(old_obs) == len(rewards), (
+                str(len(old_obs)) + " obs, " + str(len(rewards)) + " ind"
+            )
+            assert len(old_obs) == len(all_log_probs), (
+                str(len(old_obs)) + " obs, " + str(len(all_log_probs)) + " ind"
+            )
+            assert len(old_obs) == len(rollouts), (
+                str(len(old_obs)) + " obs, " + str(len(rollouts)) + " ind"
+            )
 
             # Might be different if only one agent?
-            if not evaluate and ngp_reward is None:  # Evaluation matches can be long, no reason to keep them in memory
-                for exp_buf, obs, act, rew, log_prob in zip(rollouts, old_obs, all_indices, rewards, all_log_probs):
-                    exp_buf.add_step(obs, act, rew, done + 2 * truncated, log_prob, min_learnable_action_logprob is None or min_learnable_action_logprob <= log_prob, info)
+            if (
+                not evaluate and ngp_reward is None
+            ):  # Evaluation matches can be long, no reason to keep them in memory
+                for exp_buf, obs, act, rew, log_prob in zip(
+                    rollouts, old_obs, all_indices, rewards, all_log_probs
+                ):
+                    exp_buf.add_step(
+                        obs,
+                        act,
+                        rew,
+                        done + 2 * truncated,
+                        log_prob,
+                        min_learnable_action_logprob is None
+                        or min_learnable_action_logprob <= log_prob,
+                        info,
+                    )
                     # if not rust_sim:
                     # exp_buf.add_step(obs, act, rew, done, log_prob, info)
                     # else:
@@ -352,7 +451,7 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 accumulated_all_indices.append(all_indices)
                 accumulated_rewards.append(rewards)
                 accumulated_all_log_probs.append(all_log_probs)
-                accumulated_states.append(info['state'])
+                accumulated_states.append(info["state"])
                 accumulated_dones.append(done + 2 * truncated)
                 accumulated_infos.append(info)
             # TODO skipping for now for rust to not hack on _match
@@ -368,18 +467,41 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 if gather_data:
                     np.save(file_name, np.asarray(to_save))
                 if ngp_reward is not None:
-                    updated_rewards = ngp_reward.add_ngp_rewards(accumulated_rewards, accumulated_states,
-                                                                 latest_policy_indices)
-                    for old_obs_list, indices_list, rewards_list, log_probs_list, done, my_info in zip(accumulated_old_obs,
-                                                                                        accumulated_all_indices,
-                                                                                        updated_rewards,
-                                                                                        accumulated_all_log_probs,
-                                                                                        accumulated_dones,
-                                                                                        accumulated_infos
-                                                                                        ):
-                        for exp_buf, old_obs, indices, rew, log_prob in zip(rollouts, old_obs_list, indices_list, rewards_list,
-                                                                   log_probs_list):
-                            exp_buf.add_step(old_obs, indices, rew, done, log_prob, min_learnable_action_logprob is None or min_learnable_action_logprob <= log_prob, my_info)
+                    updated_rewards = ngp_reward.add_ngp_rewards(
+                        accumulated_rewards, accumulated_states, latest_policy_indices
+                    )
+                    for (
+                        old_obs_list,
+                        indices_list,
+                        rewards_list,
+                        log_probs_list,
+                        done,
+                        my_info,
+                    ) in zip(
+                        accumulated_old_obs,
+                        accumulated_all_indices,
+                        updated_rewards,
+                        accumulated_all_log_probs,
+                        accumulated_dones,
+                        accumulated_infos,
+                    ):
+                        for exp_buf, old_obs, indices, rew, log_prob in zip(
+                            rollouts,
+                            old_obs_list,
+                            indices_list,
+                            rewards_list,
+                            log_probs_list,
+                        ):
+                            exp_buf.add_step(
+                                old_obs,
+                                indices,
+                                rew,
+                                done,
+                                log_prob,
+                                min_learnable_action_logprob is None
+                                or min_learnable_action_logprob <= log_prob,
+                                my_info,
+                            )
                 # if not rust_sim:
                 result += info["result"]
                 if info["result"] > 0:
@@ -394,10 +516,12 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
                 else:
                     # if not rust_sim:
                     observations, info = env.reset(return_info=True)
+                    tick = [0] * len(policies)
+                    do_selector = [True] * len(policies)
                     # else:
                     #     observations = env.reset()
 
-            last_state = info['state'] if send_gamestates else None
+            last_state = info["state"] if send_gamestates else None
 
     if scoreboard is not None:
         scoreboard.random_resets = random_resets  # noqa Checked above
@@ -419,9 +543,11 @@ def generate_episode(env: Gym, policies, eval_setter=DefaultState(), evaluate=Fa
 
 def print_stream_info(slider_string, scoreboard_string, obs):
     slider_range = range(61, 65)
-    slider_names = ['Speed', 'Aerial', 'Aggressive', 'Physical']
+    slider_names = ["Speed", "Aerial", "Aggressive", "Physical"]
     scoreboard_range = range(56, 61)
-    stream_dir = "C:\\Users\\kchin\\Code\\Kaiyotech\\Spectrum_play_redis\\stream_files\\"
+    stream_dir = (
+        "C:\\Users\\kchin\\Code\\Kaiyotech\\Spectrum_play_redis\\stream_files\\"
+    )
     time_remaining = round(obs[scoreboard_range.start] * 300)
     score_diff = obs[scoreboard_range.start + 1] * 5
     overtime = obs[scoreboard_range.start + 2]
@@ -429,8 +555,8 @@ def print_stream_info(slider_string, scoreboard_string, obs):
     if scoreboard_string != new_score_string:
         scoreboard_string = new_score_string
         try:
-            filename = os.path.join(stream_dir, 'scoreboard.txt')
-            with open(filename, 'w') as f2:
+            filename = os.path.join(stream_dir, "scoreboard.txt")
+            with open(filename, "w") as f2:
                 f2.write(f"{scoreboard_string}")
         except Exception as e:
             print(f"Error writing to file: {e}")
@@ -447,8 +573,8 @@ def print_stream_info(slider_string, scoreboard_string, obs):
     if slider_string != new_slider_string:
         slider_string = new_slider_string
         try:
-            filename = os.path.join(stream_dir, 'sliders.txt')
-            with open(filename, 'w') as f2:
+            filename = os.path.join(stream_dir, "sliders.txt")
+            with open(filename, "w") as f2:
                 f2.write(f"{slider_string}")
         except Exception as e:
             print(f"Error writing to file: {e}")
@@ -458,15 +584,15 @@ def print_stream_info(slider_string, scoreboard_string, obs):
 def get_sliders():
     slider_file = "C:\\Users\\kchin\\Code\\Kaiyotech\\Spectrum_play_redis\\stream_files\\set_sliders_blue.txt"
     try:
-        with open(slider_file, 'r+') as fh:
+        with open(slider_file, "r+") as fh:
             slider_values = fh.readline()
             slider_values = slider_values.split("!setslidersblue")[1].strip()
             if slider_values.startswith("used"):
                 return None
-            slider_values = slider_values.split(',')
+            slider_values = slider_values.split(",")
             if len(slider_values) != 4:
                 return None
-            for (i, value) in enumerate(slider_values):
+            for i, value in enumerate(slider_values):
                 slider_values[i] = min(max(float(value), -10), 10)  # noqa
             fh.seek(0, 0)
             fh.write("used\n")
@@ -477,7 +603,12 @@ def get_sliders():
 
 def do_selector_action(selector_skip_k, tick) -> bool:
     p = 1 / (1 + (selector_skip_k * tick))
-    if np.random.uniform() < p:
-        return False
-    else:
-        return True
+    return np.random.uniform() < 1 - p
+
+
+def calculate_action_log_prob(
+    episode_dists_probs, action_indices, selector_skip_probability_table
+):
+    episode_steps = episode_dists_probs.shape[0] - 1
+    prob_step_is_most_recent_selector_action = calculate_prob_last_selector_action_at_step_for_step(episode_steps, selector_skip_probability_table)
+    return torch.log(torch.sum(episode_dists_probs[:,action_indices] * prob_step_is_most_recent_selector_action))
