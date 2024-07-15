@@ -265,7 +265,9 @@ def generate_episode(
                             # remove model actions (if removed by selector) and add previous actions and put back mirror
                             if selector:
                                 obs[0][:, 37:45] = np.array(actual_prev_actions[index])
-                            obs = (obs[0][:, :-6], obs[1], mirror[index])
+                                obs = (obs[0][:, :-6], obs[1], mirror[index])
+                            else:
+                                obs = (obs[0], obs[1], mirror[index])
                             actions = policy.act(obs, last_state, index)
                         else:
                             actions = policy.act(last_state, index)
