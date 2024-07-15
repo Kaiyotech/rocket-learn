@@ -3,10 +3,11 @@ import io
 import json
 import os
 import pstats
-import time
 import sys
+import time
 from json import JSONDecodeError
 from typing import Iterator, List, Tuple, Union
+from weakref import ref
 
 import numba
 import numpy as np
@@ -20,66 +21,76 @@ from rocket_learn.agent.actor_critic_agent import ActorCriticAgent
 from rocket_learn.agent.policy import Policy
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGenerator
-from weakref import ref
+from rocket_learn.utils.util import (
+    calculate_prob_last_selector_action_at_step_for_steps,
+)
 
 
 class PPO:
     """
-        Proximal Policy Optimization algorithm (PPO)
+    Proximal Policy Optimization algorithm (PPO)
 
-        :param rollout_generator: Function that will generate the rollouts
-        :param agent: An ActorCriticAgent
-        :param n_steps: The number of steps to run per update
-        :param gamma: Discount factor
-        :param batch_size: batch size to break experience data into for training
-        :param epochs: Number of epoch when optimizing the loss
-        :param minibatch_size: size to break batch sets into (helps combat VRAM issues)
-        :param clip_range: PPO Clipping parameter for the value function
-        :param ent_coef: Entropy coefficient for the loss calculation
-        :param gae_lambda: Factor for trade-off of bias vs variance for Generalized Advantage Estimator
-        :param vf_coef: Value function coefficient for the loss calculation
-        :param max_grad_norm: optional clip_grad_norm value
-        :param logger: wandb logger to store run results
-        :param device: torch device
-        :param zero_grads_with_none: 0 gradient with None instead of 0
+    :param rollout_generator: Function that will generate the rollouts
+    :param agent: An ActorCriticAgent
+    :param n_steps: The number of steps to run per update
+    :param gamma: Discount factor
+    :param batch_size: batch size to break experience data into for training
+    :param epochs: Number of epoch when optimizing the loss
+    :param minibatch_size: size to break batch sets into (helps combat VRAM issues)
+    :param clip_range: PPO Clipping parameter for the value function
+    :param ent_coef: Entropy coefficient for the loss calculation
+    :param gae_lambda: Factor for trade-off of bias vs variance for Generalized Advantage Estimator
+    :param vf_coef: Value function coefficient for the loss calculation
+    :param max_grad_norm: optional clip_grad_norm value
+    :param logger: wandb logger to store run results
+    :param device: torch device
+    :param zero_grads_with_none: 0 gradient with None instead of 0
 
-        Look here for info on zero_grads_with_none
-        https://pytorch.org/docs/master/generated/torch.optim.Optimizer.zero_grad.html#torch.optim.Optimizer.zero_grad
+    Look here for info on zero_grads_with_none
+    https://pytorch.org/docs/master/generated/torch.optim.Optimizer.zero_grad.html#torch.optim.Optimizer.zero_grad
     """
 
     def __init__(
-            self,
-            rollout_generator: BaseRolloutGenerator,
-            agent: ActorCriticAgent,
-            n_steps=4096,
-            gamma=0.99,
-            batch_size=512,
-            epochs=10,
-            # reuse=2,
-            minibatch_size=None,
-            clip_range=0.2,
-            ent_coef=0.01,
-            gae_lambda=0.95,
-            vf_coef=1,
-            max_grad_norm=0.5,
-            logger=None,
-            device="cuda",
-            zero_grads_with_none=False,
-            kl_models_weights: List[Union[Tuple[Policy, float], Tuple[Policy, float, float]]] = None,
-            disable_gradient_logging=False,
-            reward_logging_dir=None,
-            target_clip_frac=None,
-            min_lr=1e-7,
-            max_lr=1,
-            clip_frac_kp=0.5,
-            clip_frac_ki=0,
-            clip_frac_kd=0,
-            wandb_wait_btwn=5,
-            save_latest=False,
-            action_selection_dict=None,
-            num_actions=0,
-            extra_prints=False,
+        self,
+        rollout_generator: BaseRolloutGenerator,
+        agent: ActorCriticAgent,
+        n_steps=4096,
+        gamma=0.99,
+        batch_size=512,
+        epochs=10,
+        # reuse=2,
+        minibatch_size=None,
+        clip_range=0.2,
+        ent_coef=0.01,
+        gae_lambda=0.95,
+        vf_coef=1,
+        max_grad_norm=0.5,
+        logger=None,
+        device="cuda",
+        zero_grads_with_none=False,
+        kl_models_weights: List[
+            Union[Tuple[Policy, float], Tuple[Policy, float, float]]
+        ] = None,
+        disable_gradient_logging=False,
+        reward_logging_dir=None,
+        target_clip_frac=None,
+        min_lr=1e-7,
+        max_lr=1,
+        clip_frac_kp=0.5,
+        clip_frac_ki=0,
+        clip_frac_kd=0,
+        wandb_wait_btwn=5,
+        save_latest=False,
+        action_selection_dict=None,
+        num_actions=0,
+        extra_prints=False,
     ):
+        self.is_selector = self.rollout_generator.selector_skip_k is not None
+        if self.is_selector:
+            assert (
+                kl_models_weights is None
+            ), "Cannot use selector with a KL divergence loss term"
+        
         self.extra_prints = extra_prints
         self.num_actions = num_actions
         self.action_selection_dict = action_selection_dict
@@ -112,8 +123,9 @@ class PPO:
         self.ent_coef = ent_coef
         self.vf_coef = vf_coef
         self.max_grad_norm = max_grad_norm
-        self.lr_pid_cont = PIDLearningRateController(target_clip_frac, clip_frac_kp, clip_frac_ki, clip_frac_kd, min_lr,
-                                                     max_lr)
+        self.lr_pid_cont = PIDLearningRateController(
+            target_clip_frac, clip_frac_kp, clip_frac_ki, clip_frac_kd, min_lr, max_lr
+        )
         self.target_clip_frac = target_clip_frac
 
         self.running_rew_mean = 0
@@ -152,8 +164,14 @@ class PPO:
         new_mean = self.running_rew_mean + delta * batch_count / tot_count
         m_a = self.running_rew_var * self.running_rew_count
         m_b = batch_var * batch_count
-        m_2 = m_a + m_b + np.square(delta) * self.running_rew_count * batch_count / (
-                self.running_rew_count + batch_count)
+        m_2 = (
+            m_a
+            + m_b
+            + np.square(delta)
+            * self.running_rew_count
+            * batch_count
+            / (self.running_rew_count + batch_count)
+        )
         new_var = m_2 / (self.running_rew_count + batch_count)
 
         new_count = batch_count + self.running_rew_count
@@ -162,16 +180,26 @@ class PPO:
         self.running_rew_var = new_var
         self.running_rew_count = new_count
 
-        return (rewards - self.running_rew_mean) / np.sqrt(self.running_rew_var + 1e-8)  # TODO normalize before update?
+        return (rewards - self.running_rew_mean) / np.sqrt(
+            self.running_rew_var + 1e-8
+        )  # TODO normalize before update?
 
-    def run(self, iterations_per_save=10, save_dir=None, save_jit=False, end_after_steps=None):
+    def run(
+        self,
+        iterations_per_save=10,
+        save_dir=None,
+        save_jit=False,
+        end_after_steps=None,
+    ):
         """
         Generate rollout data and train
         :param iterations_per_save: number of iterations between checkpoint saves
         :param save_dir: where to save
         """
         if save_dir:
-            current_run_dir = os.path.join(save_dir, self.logger.project + "_" + str(time.time()))
+            current_run_dir = os.path.join(
+                save_dir, self.logger.project + "_" + str(time.time())
+            )
             os.makedirs(current_run_dir)
         elif iterations_per_save and not save_dir:
             print("Warning: no save directory specified.")
@@ -180,7 +208,9 @@ class PPO:
         iteration = self.starting_iteration
         rollout_gen = self.rollout_generator.generate_rollouts()
 
-        self.rollout_generator.update_parameters(self.agent.actor, iteration, self.total_steps)  # noqa
+        self.rollout_generator.update_parameters(
+            self.agent.actor, iteration, self.total_steps
+        )  # noqa
         last_wandb_call = 0
 
         while True:
@@ -207,8 +237,10 @@ class PPO:
                     except StopIteration:
                         return
                 perc_old_data = old_data / (old_data + new_data)
-                self.logger.log({"ppo/%old_data": perc_old_data, "ppo/wasted_data": wasted_data},
-                                commit=False)
+                self.logger.log(
+                    {"ppo/%old_data": perc_old_data, "ppo/wasted_data": wasted_data},
+                    commit=False,
+                )
                 print(f"%old data: {perc_old_data}  --- wasted data: {wasted_data} ")
 
             self.calculate(_iter(), iteration)
@@ -216,7 +248,11 @@ class PPO:
 
             if save_dir:
                 if self.save_latest:
-                    self.save(os.path.join(save_dir, self.logger.project + "_" + "latest"), -1, save_jit)
+                    self.save(
+                        os.path.join(save_dir, self.logger.project + "_" + "latest"),
+                        -1,
+                        save_jit,
+                    )
                 if iteration % iterations_per_save == 0:
                     self.save(current_run_dir, iteration, save_jit)  # noqa
 
@@ -230,7 +266,9 @@ class PPO:
 
                 self.frozen_iterations -= 1
 
-            self.rollout_generator.update_parameters(self.agent.actor, iteration - 1, self.total_steps)  # noqa
+            self.rollout_generator.update_parameters(
+                self.agent.actor, iteration - 1, self.total_steps
+            )  # noqa
 
             # calculate years for graph
             # if self.tick_skip_starts is not None:
@@ -251,8 +289,14 @@ class PPO:
             commit = False
             if t1 - last_wandb_call > self.wandb_wait_btwn:
                 commit = True
-            self.logger.log({"ppo/steps_per_second": self.n_steps / (t1 - t0), "ppo/total_timesteps": self.total_steps},
-                            step=iteration - 1, commit=commit)
+            self.logger.log(
+                {
+                    "ppo/steps_per_second": self.n_steps / (t1 - t0),
+                    "ppo/total_timesteps": self.total_steps,
+                },
+                step=iteration - 1,
+                commit=commit,
+            )
             print(f"fps: {self.n_steps / (t1 - t0)}\ttotal steps: {self.total_steps}")
 
             # pr.disable()
@@ -279,7 +323,7 @@ class PPO:
         total_dict_orange = {}
         avg_dict_blue = {}
         avg_dict_orange = {}
-        abs_dict ={}
+        abs_dict = {}
         # require minimum number of files
         if len(files) < 50:
             return
@@ -304,32 +348,50 @@ class PPO:
                         abs_dict[key] = sum(abs(v) for v in value) / num_players
                     if data.get("kickoff"):
                         if key in total_dict_blue:
-                            total_dict_blue[key] += (sum(value[:mid]) / mid) / num_players
+                            total_dict_blue[key] += (
+                                sum(value[:mid]) / mid
+                            ) / num_players
                         else:
-                            total_dict_blue[key] = (sum(value[:mid]) / mid) / num_players
+                            total_dict_blue[key] = (
+                                sum(value[:mid]) / mid
+                            ) / num_players
                         if key in total_dict_orange:
-                            total_dict_orange[key] += (sum(value[mid:]) / mid) / num_players
+                            total_dict_orange[key] += (
+                                sum(value[mid:]) / mid
+                            ) / num_players
                         else:
-                            total_dict_orange[key] = (sum(value[mid:]) / mid) / num_players
+                            total_dict_orange[key] = (
+                                sum(value[mid:]) / mid
+                            ) / num_players
                 # to get average we need to weight the averages by steps
-                w_1 = current_steps / num_steps  # num_steps already includes current_steps
+                w_1 = (
+                    current_steps / num_steps
+                )  # num_steps already includes current_steps
                 w_2 = (num_steps - current_steps) / num_steps
                 for key, value in data.get("RewardAvg").items():
                     if key in avg_dict:
-                        avg_dict[key] = (avg_dict[key] * w_2 + sum(value) * w_1) / num_players
+                        avg_dict[key] = (
+                            avg_dict[key] * w_2 + sum(value) * w_1
+                        ) / num_players
                     else:
                         avg_dict[key] = sum(value) / num_players
 
                     # split into blue and orange
                     if data.get("kickoff"):
                         if key in avg_dict_blue:
-                            avg_dict_blue[key] = (avg_dict_blue[key] * w_2 + (sum(value[:mid]) / mid) * w_1)
+                            avg_dict_blue[key] = (
+                                avg_dict_blue[key] * w_2
+                                + (sum(value[:mid]) / mid) * w_1
+                            )
                         else:
-                            avg_dict_blue[key] = (sum(value[:mid]) / mid)
+                            avg_dict_blue[key] = sum(value[:mid]) / mid
                         if key in avg_dict_orange:
-                            avg_dict_orange[key] = (avg_dict_orange[key] * w_2 + (sum(value[mid:]) / mid) * w_1)
+                            avg_dict_orange[key] = (
+                                avg_dict_orange[key] * w_2
+                                + (sum(value[mid:]) / mid) * w_1
+                            )
                         else:
-                            avg_dict_orange[key] = (sum(value[mid:]) / mid)
+                            avg_dict_orange[key] = sum(value[mid:]) / mid
 
                 fh.close()
                 os.unlink(file)
@@ -379,6 +441,17 @@ class PPO:
         # sorted_dict = dict(sorted(log_dict.items()))  #  wandb doesn't respect this anyway
         self.logger.log(log_dict, step=iteration, commit=False)
 
+    def evaluate_actions_selector(self, trajectory_observations, trajectory_actions):
+        selector_choice_probs = calculate_prob_last_selector_action_at_step_for_steps(len(trajectory_observations), self.rollout_generator.selector_skip_probability_table)
+        dist = self.agent.actor.get_action_distribution(trajectory_observations)
+        dist_entropy = dist.entropy()
+        log_prob_tensors = []
+        entropy_tensors = []
+        for step, action in enumerate(trajectory_actions):
+            log_prob_tensors.append(th.log(th.sum(dist.probs[:,action] * selector_choice_probs[step])))
+            entropy_tensors.append(th.sum(dist_entropy * selector_choice_probs[step]))
+        return th.cat(log_prob_tensors), th.cat(entropy_tensors)
+
     def evaluate_actions(self, observations, actions):
         """
         Calculate Log Probability and Entropy of actions
@@ -390,11 +463,16 @@ class PPO:
         entropy = self.agent.actor.entropy(dist, actions)
 
         if self.extra_prints:
-            print(f"log prob mean: {log_prob.mean()}  min: {log_prob.min()}  max: {log_prob.max()}")
-            print(f"entropy mean: {entropy.mean()}  min: {entropy.min()}  max: {entropy.max()}")
             print(
-                f"dist (eval actions) prob min: {dist.probs.min()}")
-            print(f"dist (eval actions) prob max: {dist.probs.max()}, prob mean: {dist.probs.mean()}")
+                f"log prob mean: {log_prob.mean()}  min: {log_prob.min()}  max: {log_prob.max()}"
+            )
+            print(
+                f"entropy mean: {entropy.mean()}  min: {entropy.min()}  max: {entropy.max()}"
+            )
+            print(f"dist (eval actions) prob min: {dist.probs.min()}")
+            print(
+                f"dist (eval actions) prob max: {dist.probs.max()}, prob mean: {dist.probs.mean()}"
+            )
 
         entropy = -torch.mean(entropy)
         return log_prob, entropy, dist
@@ -407,9 +485,9 @@ class PPO:
         dones = np.zeros_like(rewards)
         # if truncated:
         #     print("got truncated in ppo")
-        dones[-1] = 1. if not truncated else 0.
+        dones[-1] = 1.0 if not truncated else 0.0
         episode_starts = np.zeros_like(rewards)
-        episode_starts[0] = 1.
+        episode_starts[0] = 1.0
         last_values = values[-1]
         last_gae_lam = 0
         size = len(advantages)
@@ -439,6 +517,8 @@ class PPO:
         returns_tensors = []
 
         rewards_tensors = []
+        cur_policy_step_log_prob_tensors = []
+        cur_policy_step_entropy_tensors = []
 
         ep_rewards = []
         ep_steps = []
@@ -453,7 +533,9 @@ class PPO:
             # if isinstance(buffer.observations[0], (tuple, list)):
             if isinstance(buffer.observations[0], list):
                 transposed = tuple(zip(*buffer.observations))
-                obs_tensor = tuple(torch.from_numpy(np.vstack(t)).float() for t in transposed)
+                obs_tensor = tuple(
+                    torch.from_numpy(np.vstack(t)).float() for t in transposed
+                )
             else:  # use just this section for advanced obs
                 obs_tensor = th.from_numpy(np.vstack(buffer.observations)).float()
 
@@ -462,7 +544,9 @@ class PPO:
                     x = tuple(o.to(self.device) for o in obs_tensor)
                 else:
                     x = obs_tensor.to(self.device)
-                values = self.agent.critic(x).detach().cpu().numpy().flatten()  # No batching?
+                values = (
+                    self.agent.critic(x).detach().cpu().numpy().flatten()
+                )  # No batching?
                 torch.cuda.empty_cache()  # adding to try to fix memory issues
 
             actions = np.stack(buffer.actions)
@@ -471,10 +555,17 @@ class PPO:
             dones = np.stack(buffer.dones)
             learnable_mask = np.stack(buffer.learnable)
             num_unlearnable += len(learnable_mask) - np.sum(learnable_mask)
-
+            if self.is_selector:
+                cur_policy_step_log_prob, cur_policy_step_entropy = (
+                    self.evaluate_actions_selector(obs_tensor, th.from_numpy(actions))
+                )
+                cur_policy_step_log_prob_tensors.append(cur_policy_step_log_prob)
+                cur_policy_step_entropy_tensors.append(cur_policy_step_entropy)
             size = rewards.shape[0]
 
-            advantages = self._calculate_advantages_numba(rewards, values, self.gamma, self.gae_lambda, dones[-1] == 2)
+            advantages = self._calculate_advantages_numba(
+                rewards, values, self.gamma, self.gae_lambda, dones[-1] == 2
+            )
 
             returns = advantages + values
             if self.action_selection_dict is not None:
@@ -484,7 +575,9 @@ class PPO:
                     action_count[value] += counts[i]
                 action_changes += (np.diff(flat_actions) != 0).sum()
             if isinstance(obs_tensor, tuple):
-                obs_tensors.append(tuple(tensor[learnable_mask] for tensor in obs_tensor))
+                obs_tensors.append(
+                    tuple(tensor[learnable_mask] for tensor in obs_tensor)
+                )
             else:
                 obs_tensors.append(obs_tensor[learnable_mask])
             act_tensors.append(th.from_numpy(actions[learnable_mask]))
@@ -499,16 +592,19 @@ class PPO:
         ep_steps = np.array(ep_steps)
 
         total_steps = sum(ep_steps)
-        self.logger.log({
-            "ppo/ep_reward_mean": ep_rewards.mean(),
-            "ppo/ep_reward_std": ep_rewards.std(),
-            "ppo/ep_len_mean": ep_steps.mean(),
-            "submodel_swaps/action_changes": action_changes / total_steps,
-            "ppo/mean_reward_per_step": ep_rewards.mean() / ep_steps.mean(),
-            "ppo/abs_ep_reward_mean": np.abs(ep_rewards).sum() / ep_steps.mean(),
-            "ppo/unlearnable_count": num_unlearnable,
-
-        }, step=iteration, commit=False)
+        self.logger.log(
+            {
+                "ppo/ep_reward_mean": ep_rewards.mean(),
+                "ppo/ep_reward_std": ep_rewards.std(),
+                "ppo/ep_len_mean": ep_steps.mean(),
+                "submodel_swaps/action_changes": action_changes / total_steps,
+                "ppo/mean_reward_per_step": ep_rewards.mean() / ep_steps.mean(),
+                "ppo/abs_ep_reward_mean": np.abs(ep_rewards).sum() / ep_steps.mean(),
+                "ppo/unlearnable_count": num_unlearnable,
+            },
+            step=iteration,
+            commit=False,
+        )
 
         if self.action_selection_dict is not None:
             for k, v in self.action_selection_dict.items():
@@ -528,6 +624,8 @@ class PPO:
         log_prob_tensor = th.cat(log_prob_tensors).float()
         # advantages_tensor = th.cat(advantage_tensors)
         returns_tensor = th.cat(returns_tensors).float()
+        cur_policy_step_log_prob_tensor = th.cat(cur_policy_step_log_prob_tensors)
+        cur_policy_step_entropy_tensor = th.cat(cur_policy_step_entropy_tensors)
 
         tot_loss = 0
         tot_policy_loss = 0
@@ -550,12 +648,14 @@ class PPO:
         if self.frozen_iterations > 0:
             print("Policy network frozen, only updating value network...")
 
-        precompute = torch.cat([param.view(-1) for param in self.agent.actor.parameters()])
+        precompute = torch.cat(
+            [param.view(-1) for param in self.agent.actor.parameters()]
+        )
         t0 = time.perf_counter_ns()
         self.agent.optimizer.zero_grad(set_to_none=self.zero_grads_with_none)
         for e in range(self.epochs):
             # this is mostly pulled from sb3
-            indices = torch.randperm(returns_tensor.shape[0])[:self.batch_size]
+            indices = torch.randperm(returns_tensor.shape[0])[: self.batch_size]
             if isinstance(obs_tensor, tuple):
                 obs_batch = tuple(o[indices] for o in obs_tensor)
                 # obs_batch = tuple(obs_tensor[i][indices] for i in range(len(obs_tensor)))  # try to speed up
@@ -565,32 +665,51 @@ class PPO:
             log_prob_batch = log_prob_tensor[indices]
             # advantages_batch = advantages_tensor[indices]
             returns_batch = returns_tensor[indices]
+            cur_policy_step_log_prob_batch = cur_policy_step_log_prob_tensor[indices]
+            cur_policy_step_entropy_batch = cur_policy_step_entropy_tensor[indices]
 
             for i in range(0, self.batch_size, self.minibatch_size):
                 # Note: Will cut off final few samples
 
                 if isinstance(obs_tensor, tuple):
-                    obs = tuple(o[i: i + self.minibatch_size].to(self.device) for o in obs_batch)
+                    obs = tuple(
+                        o[i : i + self.minibatch_size].to(self.device)
+                        for o in obs_batch
+                    )
                 else:
-                    obs = obs_batch[i: i + self.minibatch_size].to(self.device)
+                    obs = obs_batch[i : i + self.minibatch_size].to(self.device)
 
-                act = act_batch[i: i + self.minibatch_size].to(self.device)
+                act = act_batch[i : i + self.minibatch_size].to(self.device)
                 # adv = advantages_batch[i:i + self.minibatch_size].to(self.device)
-                ret = returns_batch[i: i + self.minibatch_size].to(self.device)
-
-                old_log_prob = log_prob_batch[i: i + self.minibatch_size].to(self.device)
+                ret = returns_batch[i : i + self.minibatch_size].to(self.device)
+                old_log_prob = log_prob_batch[i : i + self.minibatch_size].to(
+                    self.device
+                )
 
                 # TODO optimization: use forward_actor_critic instead of separate in case shared, also use GPU
                 try:
-                    log_prob, entropy, dist = self.evaluate_actions(obs, act)  # Assuming obs and actions as input
+                    if self.is_selector:
+                        log_prob = cur_policy_step_log_prob_batch[i : i + self.minibatch_size]
+                        entropy = cur_policy_step_entropy_batch[i : i + self.minibatch_size]
+                        dist = None
+                    else:
+                        log_prob, entropy, dist = self.evaluate_actions(
+                            obs, act
+                        )  # Assuming obs and actions as input
                 except ValueError as e:
                     print("ValueError in evaluate_actions", e)
                     continue
                 diff_log_prob = log_prob - old_log_prob
                 #  stabilize the ratio for small log prob
-                ratio = torch.where(diff_log_prob.abs() < 0.00005, 1 + diff_log_prob, torch.exp(diff_log_prob))
+                ratio = torch.where(
+                    diff_log_prob.abs() < 0.00005,
+                    1 + diff_log_prob,
+                    torch.exp(diff_log_prob),
+                )
                 if self.extra_prints:
-                    print(f"ratio.min is {ratio.min()}  max is {ratio.max()}  mean is {ratio.mean()}")
+                    print(
+                        f"ratio.min is {ratio.min()}  max is {ratio.max()}  mean is {ratio.mean()}"
+                    )
                 values_pred = self.agent.critic(obs)
 
                 values_pred = th.squeeze(values_pred)
@@ -602,9 +721,12 @@ class PPO:
                 low_side = 1 - self.clip_range
                 policy_loss_2 = adv * th.clamp(ratio, low_side, 1 / low_side)
                 if self.extra_prints:
-                    print(f"Policy_loss_1: mean: {policy_loss_1.mean()} min: {policy_loss_1.min()} max: {policy_loss_1.max()}")
                     print(
-                        f"Policy_loss_2: mean: {policy_loss_2.mean()} min: {policy_loss_2.min()} max: {policy_loss_2.max()}")
+                        f"Policy_loss_1: mean: {policy_loss_1.mean()} min: {policy_loss_1.min()} max: {policy_loss_1.max()}"
+                    )
+                    print(
+                        f"Policy_loss_2: mean: {policy_loss_2.mean()} min: {policy_loss_2.min()} max: {policy_loss_2.max()}"
+                    )
                 policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
 
                 # **If we want value clipping, add it here**
@@ -619,7 +741,9 @@ class PPO:
 
                 kl_loss = 0
                 if self.kl_models_weights is not None:
-                    for k, (model, kl_coef, half_life) in enumerate(self.kl_models_weights):
+                    for k, (model, kl_coef, half_life) in enumerate(
+                        self.kl_models_weights
+                    ):
                         if half_life is not None:
                             kl_coef *= 0.5 ** (self.total_steps / half_life)
                         with torch.no_grad():
@@ -629,8 +753,12 @@ class PPO:
                         tot_kl_coeffs[k] = kl_coef
                         kl_loss += kl_coef * div
 
-                loss = ((policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss + kl_loss)
-                        / (self.batch_size / self.minibatch_size))
+                loss = (
+                    policy_loss
+                    + self.ent_coef * entropy_loss
+                    + self.vf_coef * value_loss
+                    + kl_loss
+                ) / (self.batch_size / self.minibatch_size)
 
                 if not torch.isfinite(loss).all():
                     print("Non-finite loss, skipping", n)
@@ -643,8 +771,20 @@ class PPO:
                     print("\tLog prob:", log_prob)
                     print("\tOld log prob:", old_log_prob)
                     print("\tEntropy:", entropy)
-                    print("\tActor has inf:", any(not p.isfinite().all() for p in self.agent.actor.parameters()))
-                    print("\tCritic has inf:", any(not p.isfinite().all() for p in self.agent.critic.parameters()))
+                    print(
+                        "\tActor has inf:",
+                        any(
+                            not p.isfinite().all()
+                            for p in self.agent.actor.parameters()
+                        ),
+                    )
+                    print(
+                        "\tCritic has inf:",
+                        any(
+                            not p.isfinite().all()
+                            for p in self.agent.critic.parameters()
+                        ),
+                    )
                     print("\tReward as inf:", not np.isfinite(ep_rewards).all())
                     if isinstance(obs, tuple):
                         for j in range(len(obs)):
@@ -661,7 +801,9 @@ class PPO:
                 tot_policy_loss += policy_loss.item()
                 tot_entropy_loss += entropy_loss.item()
                 tot_value_loss += value_loss.item()
-                tot_clipped += th.mean((th.abs(ratio - 1) > self.clip_range).float()).item()
+                tot_clipped += th.mean(
+                    (th.abs(ratio - 1) > self.clip_range).float()
+                ).item()
                 n += 1
                 # pb.update(self.minibatch_size)
 
@@ -675,23 +817,32 @@ class PPO:
         # update the LR to keep it within the clip fraction
         if self.target_clip_frac is not None:
             if n == 0:
-                print("no good epochs. The LR were: {} and {}", self.agent.optimizer.param_groups[0]["lr"],
-                      self.agent.optimizer.param_groups[1]["lr"])
+                print(
+                    "no good epochs. The LR were: {} and {}",
+                    self.agent.optimizer.param_groups[0]["lr"],
+                    self.agent.optimizer.param_groups[1]["lr"],
+                )
             else:
                 orig_actor = self.agent.optimizer.param_groups[0]["lr"]
-                self.agent.optimizer.param_groups[0]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n,
-                                                                                     self.agent.optimizer.param_groups[
-                                                                                         0]["lr"])
+                self.agent.optimizer.param_groups[0]["lr"] = self.lr_pid_cont.adjust(
+                    tot_clipped / n, self.agent.optimizer.param_groups[0]["lr"]
+                )
                 # self.agent.optimizer.param_groups[1]["lr"] = self.lr_pid_cont.adjust(tot_clipped / n, self.agent.optimizer.param_groups[1]["lr"])
-                self.agent.optimizer.param_groups[1]["lr"] = self.agent.optimizer.param_groups[0]["lr"]
+                self.agent.optimizer.param_groups[1]["lr"] = (
+                    self.agent.optimizer.param_groups[0]["lr"]
+                )
                 after_actor = self.agent.optimizer.param_groups[0]["lr"]
-                print(f"clipped {tot_clipped} and changed from {orig_actor} to {after_actor}")
+                print(
+                    f"clipped {tot_clipped} and changed from {orig_actor} to {after_actor}"
+                )
 
         t1 = time.perf_counter_ns()
 
         assert n > 0
 
-        postcompute = torch.cat([param.view(-1) for param in self.agent.actor.parameters()])
+        postcompute = torch.cat(
+            [param.view(-1) for param in self.agent.actor.parameters()]
+        )
 
         log_dict = {
             "ppo/loss": tot_loss / n,
@@ -705,16 +856,30 @@ class PPO:
         }
 
         if self.target_clip_frac is not None:
-            log_dict.update({"ppo/actor_lr": self.agent.optimizer.param_groups[0]["lr"]})
-            log_dict.update({"ppo/critic_lr": self.agent.optimizer.param_groups[1]["lr"]})
+            log_dict.update(
+                {"ppo/actor_lr": self.agent.optimizer.param_groups[0]["lr"]}
+            )
+            log_dict.update(
+                {"ppo/critic_lr": self.agent.optimizer.param_groups[1]["lr"]}
+            )
 
         if self.kl_models_weights is not None and len(self.kl_models_weights) > 0:
-            log_dict.update({f"ppo/kl_div_model_{i}": tot_kl_other_models[i] / n
-                             for i in range(len(self.kl_models_weights))})
-            log_dict.update({f"ppo/kl_coeff_model_{i}": tot_kl_coeffs[i]
-                             for i in range(len(self.kl_models_weights))})
+            log_dict.update(
+                {
+                    f"ppo/kl_div_model_{i}": tot_kl_other_models[i] / n
+                    for i in range(len(self.kl_models_weights))
+                }
+            )
+            log_dict.update(
+                {
+                    f"ppo/kl_coeff_model_{i}": tot_kl_coeffs[i]
+                    for i in range(len(self.kl_models_weights))
+                }
+            )
 
-        self.logger.log(log_dict, step=iteration, commit=False)  # Is committed after when calculating fps
+        self.logger.log(
+            log_dict, step=iteration, commit=False
+        )  # Is committed after when calculating fps
 
     def load(self, load_location, continue_iterations=True):
         """
@@ -724,12 +889,12 @@ class PPO:
         """
 
         checkpoint = torch.load(load_location)
-        self.agent.actor.load_state_dict(checkpoint['actor_state_dict'])
-        self.agent.critic.load_state_dict(checkpoint['critic_state_dict'])
-        self.agent.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.agent.actor.load_state_dict(checkpoint["actor_state_dict"])
+        self.agent.critic.load_state_dict(checkpoint["critic_state_dict"])
+        self.agent.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
         if continue_iterations:
-            self.starting_iteration = checkpoint['epoch']
+            self.starting_iteration = checkpoint["epoch"]
             self.total_steps = checkpoint["total_steps"]
             print("Continuing training at iteration " + str(self.starting_iteration))
 
@@ -746,14 +911,17 @@ class PPO:
 
         os.makedirs(version_dir, exist_ok=current_step == -1)
 
-        torch.save({
-            'epoch': current_step,
-            "total_steps": self.total_steps,
-            'actor_state_dict': self.agent.actor.state_dict(),
-            'critic_state_dict': self.agent.critic.state_dict(),
-            'optimizer_state_dict': self.agent.optimizer.state_dict(),
-            # TODO save/load reward normalization mean, std, count
-        }, os.path.join(version_dir, "checkpoint.pt"))
+        torch.save(
+            {
+                "epoch": current_step,
+                "total_steps": self.total_steps,
+                "actor_state_dict": self.agent.actor.state_dict(),
+                "critic_state_dict": self.agent.critic.state_dict(),
+                "optimizer_state_dict": self.agent.optimizer.state_dict(),
+                # TODO save/load reward normalization mean, std, count
+            },
+            os.path.join(version_dir, "checkpoint.pt"),
+        )
 
         if save_actor_jit:
             traced_actor = th.jit.trace(self.agent.actor, self.jit_tracer)
@@ -781,7 +949,16 @@ class PPO:
 # adapted from AechPro distrib-rl by AechPro and SomeRando
 # https://github.com/AechPro/distrib-rl/blob/main/distrib_rl/policy_optimization/learning_rate_controllers/pid_learning_rate_controller.py
 class PIDLearningRateController(object):
-    def __init__(self, target=0.025, kp=0.1, ki=0, kd=0, min_output=1e-7, max_output=1, max_clip_error=0.05):
+    def __init__(
+        self,
+        target=0.025,
+        kp=0.1,
+        ki=0,
+        kd=0,
+        min_output=1e-7,
+        max_output=1,
+        max_clip_error=0.05,
+    ):
         self.target = target
         self.kp = kp
         self.ki = ki
