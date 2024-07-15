@@ -696,8 +696,7 @@ class PPO:
                 try:
                     if self.is_selector:
                         log_prob = cur_policy_step_log_prob_batch[i: i + self.minibatch_size]
-                        entropy = cur_policy_step_entropy_batch[i: i + self.minibatch_size]
-                        entropy = entropy.sum(dim=-1)
+                        entropy = -th.mean(cur_policy_step_entropy_batch[i : i + self.minibatch_size])
                         dist = None
                     else:
                         log_prob, entropy, dist = self.evaluate_actions(

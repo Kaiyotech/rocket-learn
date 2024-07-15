@@ -149,7 +149,9 @@ def generate_episode(
             num_submodels = policies[i].shape[0]
             break
     # eval with no selector
+    selector_eval_only_others = False
     if num_submodels is None:
+        selector_eval_only_others = True
         selector = False
     with torch.no_grad():
         tick = [0] * len(policies)
@@ -265,6 +267,9 @@ def generate_episode(
                             # remove model actions (if removed by selector) and add previous actions and put back mirror
                             if selector:
                                 obs[0][:, 37:45] = np.array(actual_prev_actions[index])
+                                obs = (obs[0][:, :-6], obs[1], mirror[index])
+                            # gonna be selector obs, but no selector is present
+                            elif selector_eval_only_others:
                                 obs = (obs[0][:, :-6], obs[1], mirror[index])
                             else:
                                 obs = (obs[0], obs[1], mirror[index])
