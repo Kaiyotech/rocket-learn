@@ -308,7 +308,7 @@ def generate_episode(
                                 action_indices, last_state, obs
                             )
 
-                        all_indices.extend(list(action_indices.numpy()))
+                        all_indices.extend([action_indices.numpy()])
                         all_actions.append(actions)
                         if selector and not evaluate:
                             log_probs = torch.as_tensor(calculate_action_log_prob(episode_action_distributions[index], action_indices, selector_skip_probability_table))

@@ -628,8 +628,9 @@ class PPO:
         log_prob_tensor = th.cat(log_prob_tensors).float()
         # advantages_tensor = th.cat(advantage_tensors)
         returns_tensor = th.cat(returns_tensors).float()
-        cur_policy_step_log_prob_tensor = th.cat(cur_policy_step_log_prob_tensors)
-        cur_policy_step_entropy_tensor = th.cat(cur_policy_step_entropy_tensors)
+        if self.is_selector:
+            cur_policy_step_log_prob_tensor = th.cat(cur_policy_step_log_prob_tensors)
+            cur_policy_step_entropy_tensor = th.cat(cur_policy_step_entropy_tensors)
 
         tot_loss = 0
         tot_policy_loss = 0
@@ -669,8 +670,9 @@ class PPO:
             log_prob_batch = log_prob_tensor[indices]
             # advantages_batch = advantages_tensor[indices]
             returns_batch = returns_tensor[indices]
-            cur_policy_step_log_prob_batch = cur_policy_step_log_prob_tensor[indices]
-            cur_policy_step_entropy_batch = cur_policy_step_entropy_tensor[indices]
+            if self.is_selector:
+                cur_policy_step_log_prob_batch = cur_policy_step_log_prob_tensor[indices]
+                cur_policy_step_entropy_batch = cur_policy_step_entropy_tensor[indices]
 
             for i in range(0, self.batch_size, self.minibatch_size):
                 # Note: Will cut off final few samples
@@ -798,7 +800,7 @@ class PPO:
                         print("\tObs has inf:", not obs.isfinite().all())
                     continue
 
-                loss.backward()
+                loss.backward(retain_graph=self.is_selector)
 
                 # Unbiased low variance KL div estimator from http://joschu.net/blog/kl-approx.html
                 total_kl_div += th.mean((ratio - 1) - (log_prob - old_log_prob)).item()
