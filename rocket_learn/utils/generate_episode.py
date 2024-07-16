@@ -16,7 +16,7 @@ from rocket_learn.agent.pretrained_policy import HardcodedAgent
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.utils.dynamic_gamemode_setter import DynamicGMSetter
 from rocket_learn.utils.truncated_condition import TruncatedCondition
-from rocket_learn.utils.util import gamestate_to_replay_array, make_python_state, calculate_prob_last_selector_action_at_step_for_step
+from rocket_learn.utils.util import gamestate_to_replay_array, make_python_state
 
 # import pickle
 
@@ -85,9 +85,16 @@ def generate_episode(
     if selector:
         send_gamestates = True  # needed for evals and everything
         if not evaluate:
-            episode_action_distributions = [
-                torch.as_tensor([], dtype=torch.float32) for _ in policies
-            ]
+
+            episode_action_distributions = torch.zeros(
+                (
+                    len(policies),
+                    len(selector_skip_probability_table),
+                    next(
+                        policy for policy in policies if isinstance(policy, Policy)
+                    ).shape[0],
+                )
+            )
             steps_since_episode_start = 0
     if scoreboard is not None:
         random_resets = scoreboard.random_resets
@@ -213,11 +220,10 @@ def generate_episode(
 
                 dist = policy.get_action_distribution(obs)
                 if selector and not evaluate:
-                    # TODO: Kaiyo, I am assuming that the dist.logits here is shaped like (N, A) where A is the size of your action space and N is the number of policies
-                    for index, probs in enumerate(dist.probs):
-                        episode_action_distributions[index] = torch.cat(
-                            (episode_action_distributions[index], probs), dim=0
-                        )
+                    for index, probs in enumerate(dist.probs[:, 0, :]):
+                        episode_action_distributions[index][
+                            steps_since_episode_start
+                        ] = probs
                 # to_dump = (obs, dist)
                 # fh = open("obs-dist.pkl", "ab")
                 # pickle.dump(to_dump, fh)
@@ -245,9 +251,20 @@ def generate_episode(
                 all_indices.extend(list(action_indices.numpy()))
                 all_actions.extend(list(actions))
                 if selector and not evaluate:
-                    log_probs = torch.zeros(len(episode_action_distributions), dtype=torch.float32)
-                    for idx, episode_action_distribution in enumerate(episode_action_distributions):
-                        log_probs[idx] = torch.as_tensor(calculate_action_log_prob(episode_action_distribution, action_indices[idx], selector_skip_probability_table))
+                    log_probs = torch.zeros(
+                        len(episode_action_distributions), dtype=torch.float32
+                    )
+                    for idx, episode_action_distribution in enumerate(
+                        episode_action_distributions
+                    ):
+                        log_probs[idx] = torch.as_tensor(
+                            calculate_action_log_prob(
+                                steps_since_episode_start,
+                                episode_action_distribution,
+                                action_indices[idx],
+                                selector_skip_probability_table,
+                            )
+                        )
                 else:
                     log_probs = policy.log_prob(dist, action_indices)
 
@@ -291,10 +308,9 @@ def generate_episode(
                     elif isinstance(policy, Policy):
                         dist = policy.get_action_distribution(obs)
                         if selector and not evaluate:
-                            # TODO: Kaiyo, I am assuming that the dist.logits here is shaped like (1, A) where A is the size of your action space
-                            episode_action_distributions[index] = torch.cat(
-                                (episode_action_distributions[index], dist.probs[0]), dim=0
-                            )
+                            episode_action_distributions[index][
+                                steps_since_episode_start
+                            ] = probs
                         if not selector:
                             action_indices = policy.sample_action(dist)[0]
                             actions = policy.env_compatible(action_indices)
@@ -316,7 +332,14 @@ def generate_episode(
                         all_indices.extend([action_indices.numpy()])
                         all_actions.append(actions)
                         if selector and not evaluate:
-                            log_probs = torch.as_tensor(calculate_action_log_prob(episode_action_distributions[index], action_indices, selector_skip_probability_table))
+                            log_probs = torch.as_tensor(
+                                calculate_action_log_prob(
+                                    steps_since_episode_start,
+                                    episode_action_distributions[index],
+                                    action_indices,
+                                    selector_skip_probability_table,
+                                )
+                            )
                         else:
                             log_probs = policy.log_prob(dist, action_indices)
                         all_log_probs.extend(list(log_probs.numpy().reshape(1)))
@@ -615,9 +638,11 @@ def do_selector_action(selector_skip_k, tick) -> bool:
 
 
 def calculate_action_log_prob(
-    episode_dists_probs, action_indices, selector_skip_probability_table
+    episode_steps, episode_dists_probs, action_indices, selector_skip_probability_table
 ):
-    episode_steps = episode_dists_probs.shape[0] - 1
-    prob_step_is_most_recent_selector_action = calculate_prob_last_selector_action_at_step_for_step(episode_steps, selector_skip_probability_table)
-    return torch.log(torch.sum(episode_dists_probs[:,action_indices] * prob_step_is_most_recent_selector_action))
-    # return torch.log(torch.sum(episode_dists_probs[:,:,action_indices.squeeze()] * prob_step_is_most_recent_selector_action))
+    return torch.log(
+        torch.sum(
+            episode_dists_probs[:, action_indices[0]]
+            * selector_skip_probability_table[episode_steps]
+        )
+    )

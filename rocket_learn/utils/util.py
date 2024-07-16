@@ -270,35 +270,17 @@ def generate_selector_skip_probability_table(episode_steps, selector_skip_k):
         )
         selector_action_step_probs.append(sum)
 
-    return prob_no_selector_action_taken_from_step_until_step
-
-
-def calculate_prob_last_selector_action_at_step_for_step(
-    step, selector_skip_probability_table
-):
-    # arr[i] is the probability that i was the last step that the selector made an action choice when the current step is step
-    if step == 0:
-        return np.ones(1)
-    arr = np.zeros(step + 1)
-    arr[0] = selector_skip_probability_table[1, step]
-    for cur_step in range(1, step):
-        arr[cur_step] = (
-            1 - selector_skip_probability_table[cur_step, cur_step]
-        ) * selector_skip_probability_table[cur_step + 1, step]
-    arr[step] = 1 - selector_skip_probability_table[step, step]
-    return arr
-
-
-def calculate_prob_last_selector_action_at_step_for_steps(
-    total_steps, selector_skip_probability_table
-):
     # arr[i,j] is the probability that j was the last step that the selector made an action choice when the current step is i
-    arr = np.zeros((total_steps + 1, total_steps + 1))
-    arr[:, 0] = selector_skip_probability_table[1, : total_steps + 1]
-    diagonal = np.diagonal(selector_skip_probability_table)
-    for cur_step in range(1, total_steps):
+    arr = np.zeros((episode_steps + 1, episode_steps + 1))
+    arr[:, 0] = prob_no_selector_action_taken_from_step_until_step[
+        1, : episode_steps + 1
+    ]
+    diagonal = np.diagonal(prob_no_selector_action_taken_from_step_until_step)
+    for cur_step in range(1, episode_steps):
         arr[:, cur_step] = (
-            1 - selector_skip_probability_table[cur_step, cur_step]
-        ) * selector_skip_probability_table[cur_step + 1, : total_steps + 1]
-    arr[:, total_steps] = 1 - diagonal[: total_steps + 1]
-    return arr * np.tril(np.ones((total_steps + 1, total_steps + 1)))
+            1 - prob_no_selector_action_taken_from_step_until_step[cur_step, cur_step]
+        ) * prob_no_selector_action_taken_from_step_until_step[
+            cur_step + 1, : episode_steps + 1
+        ]
+    arr[:, episode_steps] = 1 - diagonal[: episode_steps + 1]
+    return arr * np.tril(np.ones((episode_steps + 1, episode_steps + 1)))
