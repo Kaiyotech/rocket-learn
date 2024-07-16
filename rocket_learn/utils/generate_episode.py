@@ -82,20 +82,7 @@ def generate_episode(
         accumulated_dones = []
         accumulated_infos = []
         send_gamestates = True
-    if selector:
-        send_gamestates = True  # needed for evals and everything
-        if not evaluate:
 
-            episode_action_distributions = torch.zeros(
-                (
-                    len(policies),
-                    len(selector_skip_probability_table),
-                    next(
-                        policy for policy in policies if isinstance(policy, Policy)
-                    ).shape[0],
-                )
-            )
-            steps_since_episode_start = 0
     if scoreboard is not None:
         random_resets = scoreboard.random_resets
         scoreboard.random_resets = not evaluate
@@ -155,10 +142,23 @@ def generate_episode(
         if value == 1 and policies[i].shape[0] < 50:
             num_submodels = policies[i].shape[0]
             break
+    if selector:
+        send_gamestates = True  # needed for evals and everything
+        if not evaluate:
+            if selector_skip_probability_table is not None:
+                max_size = len(selector_skip_probability_table)
+                episode_action_distributions = [
+                    torch.zeros((max_size, num_submodels), dtype=torch.float32) for _ in policies
+                ]
+            else:
+                episode_action_distributions = [
+                    torch.as_tensor([], dtype=torch.float32) for _ in policies
+                ]
+            steps_since_episode_start = 0
     # eval with no selector
     selector_eval_only_others = False
     if num_submodels is None:
-        selector_eval_only_others = True
+        selector_eval_only_others = selector
         selector = False
     with torch.no_grad():
         tick = [0] * len(policies)
@@ -310,10 +310,10 @@ def generate_episode(
                         if selector and not evaluate:
                             episode_action_distributions[index][
                                 steps_since_episode_start
-                            ] = probs
+                            ] = dist.probs
                         if not selector:
-                            action_indices = policy.sample_action(dist)[0]
-                            actions = policy.env_compatible(action_indices)
+                            action_indices = policy.sample_action(dist)
+                            actions = policy.env_compatible(action_indices)[0]
                         else:
                             if do_selector[index]:
                                 action_indices = policy.sample_action(dist)
@@ -329,7 +329,7 @@ def generate_episode(
                                 action_indices, last_state, obs
                             )
 
-                        all_indices.extend([action_indices.numpy()])
+                        all_indices.extend(list(action_indices.numpy()))
                         all_actions.append(actions)
                         if selector and not evaluate:
                             log_probs = torch.as_tensor(
