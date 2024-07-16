@@ -322,7 +322,7 @@ def generate_episode(
                                 last_model_action[index] = action_indices
 
                             else:
-                                action_indices = last_model_action[index].unsqueeze(0)
+                                action_indices = copy.deepcopy(last_model_action[index].unsqueeze(0))
 
                             # need to remove the prev model actions and add the prev actions
                             obs[0][:, 37:45] = np.array(actual_prev_actions[index])
@@ -481,7 +481,7 @@ def generate_episode(
                     # print(f"actions going to buffer are {act} and rewards are {rew}")
             elif ngp_reward is not None:
                 accumulated_old_obs.append(old_obs)
-                accumulated_all_indices.append(copy.deepcopy(all_indices))  # I don't know why indices is the only one with an issue
+                accumulated_all_indices.append(all_indices)
                 accumulated_rewards.append(rewards)
                 accumulated_all_log_probs.append(all_log_probs)
                 accumulated_states.append(info["state"])
