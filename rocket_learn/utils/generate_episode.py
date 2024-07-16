@@ -642,6 +642,8 @@ def do_selector_action(selector_skip_k, tick) -> bool:
 def calculate_action_log_prob(
     episode_steps, episode_dists_probs, action_indices, selector_skip_probability_table
 ):
+    if episode_steps == 0:
+        assert action_indices.shape == (1,)
     return torch.log(
         torch.sum(
             episode_dists_probs[:, action_indices[0]]
