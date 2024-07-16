@@ -22,9 +22,6 @@ from rocket_learn.agent.actor_critic_agent import ActorCriticAgent
 from rocket_learn.agent.policy import Policy
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGenerator
-from rocket_learn.utils.util import (
-    calculate_prob_last_selector_action_at_step_for_steps,
-)
 
 
 class PPO:
@@ -446,32 +443,24 @@ class PPO:
         self.logger.log(log_dict, step=iteration, commit=False)
 
     def evaluate_actions_selector(self, trajectory_observations, trajectory_actions):
-        trajectory_batch_size = (
-            len(trajectory_observations[0])
-            if isinstance(trajectory_observations, tuple)
-            else len(trajectory_observations)
+        trajectory_batch_size = len(trajectory_actions)
+        selector_choice_probs = self.rollout_generator.selector_skip_probability_table[
+            :trajectory_batch_size, :trajectory_batch_size
+        ]
+        selector_choice_probs = th.as_tensor(
+            selector_choice_probs, device=self.device, dtype=th.float32
         )
-        selector_choice_probs = calculate_prob_last_selector_action_at_step_for_steps(
-            trajectory_batch_size - 1,
-            self.rollout_generator.selector_skip_probability_table,
-        )
-        selector_choice_probs = th.as_tensor(selector_choice_probs, device=self.device)
         dist = self.agent.actor.get_action_distribution(
             trajectory_observations, should_copy=True
         )
+        trajectory_actions = trajectory_actions.to(self.device)
         dist_entropy = dist.entropy()[:, 0]
-        log_prob_tensors = []
-        entropy_tensors = []
-        for step, action in enumerate(trajectory_actions):
-            log_prob_tensors.append(
-                th.log(
-                    th.sum(dist.probs[:, 0, action] * selector_choice_probs[step])
-                ).expand(1)
-            )
-            entropy_tensors.append(
-                th.sum(dist_entropy * selector_choice_probs[step]).expand(1)
-            )
-        return th.cat(log_prob_tensors), th.cat(entropy_tensors)
+        dist_probs = dist.probs[:, 0, :]
+        log_prob_tensor = th.log(
+            th.matmul(selector_choice_probs, dist_probs).gather(1, trajectory_actions)
+        )[:, 0]
+        entropy_tensor = th.matmul(selector_choice_probs, dist_entropy)
+        return log_prob_tensor, entropy_tensor
 
     def evaluate_actions(self, observations, actions):
         """
