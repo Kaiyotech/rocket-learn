@@ -5,6 +5,7 @@ import os
 import pstats
 import sys
 import time
+from inspect import signature
 from json import JSONDecodeError
 from typing import Iterator, List, Tuple, Union
 from weakref import ref
@@ -51,45 +52,48 @@ class PPO:
     """
 
     def __init__(
-            self,
-            rollout_generator: BaseRolloutGenerator,
-            agent: ActorCriticAgent,
-            n_steps=4096,
-            gamma=0.99,
-            batch_size=512,
-            epochs=10,
-            # reuse=2,
-            minibatch_size=None,
-            clip_range=0.2,
-            ent_coef=0.01,
-            gae_lambda=0.95,
-            vf_coef=1,
-            max_grad_norm=0.5,
-            logger=None,
-            device="cuda",
-            zero_grads_with_none=False,
-            kl_models_weights: List[
-                Union[Tuple[Policy, float], Tuple[Policy, float, float]]
-            ] = None,
-            disable_gradient_logging=False,
-            reward_logging_dir=None,
-            target_clip_frac=None,
-            min_lr=1e-7,
-            max_lr=1,
-            clip_frac_kp=0.5,
-            clip_frac_ki=0,
-            clip_frac_kd=0,
-            wandb_wait_btwn=5,
-            save_latest=False,
-            action_selection_dict=None,
-            num_actions=0,
-            extra_prints=False,
+        self,
+        rollout_generator: BaseRolloutGenerator,
+        agent: ActorCriticAgent,
+        n_steps=4096,
+        gamma=0.99,
+        batch_size=512,
+        epochs=10,
+        # reuse=2,
+        minibatch_size=None,
+        clip_range=0.2,
+        ent_coef=0.01,
+        gae_lambda=0.95,
+        vf_coef=1,
+        max_grad_norm=0.5,
+        logger=None,
+        device="cuda",
+        zero_grads_with_none=False,
+        kl_models_weights: List[
+            Union[Tuple[Policy, float], Tuple[Policy, float, float]]
+        ] = None,
+        disable_gradient_logging=False,
+        reward_logging_dir=None,
+        target_clip_frac=None,
+        min_lr=1e-7,
+        max_lr=1,
+        clip_frac_kp=0.5,
+        clip_frac_ki=0,
+        clip_frac_kd=0,
+        wandb_wait_btwn=5,
+        save_latest=False,
+        action_selection_dict=None,
+        num_actions=0,
+        extra_prints=False,
     ):
         self.is_selector = rollout_generator.selector_skip_k is not None
         if self.is_selector:
             assert (
-                    kl_models_weights is None
+                kl_models_weights is None
             ), "Cannot use selector with a KL divergence loss term"
+            assert (
+                "should_copy" in signature(agent.actor.forward).parameters
+            ), "Actor model for selector should allow weight copying via a should_copy parameter"
 
         self.extra_prints = extra_prints
         self.num_actions = num_actions
@@ -165,12 +169,12 @@ class PPO:
         m_a = self.running_rew_var * self.running_rew_count
         m_b = batch_var * batch_count
         m_2 = (
-                m_a
-                + m_b
-                + np.square(delta)
-                * self.running_rew_count
-                * batch_count
-                / (self.running_rew_count + batch_count)
+            m_a
+            + m_b
+            + np.square(delta)
+            * self.running_rew_count
+            * batch_count
+            / (self.running_rew_count + batch_count)
         )
         new_var = m_2 / (self.running_rew_count + batch_count)
 
@@ -185,11 +189,11 @@ class PPO:
         )  # TODO normalize before update?
 
     def run(
-            self,
-            iterations_per_save=10,
-            save_dir=None,
-            save_jit=False,
-            end_after_steps=None,
+        self,
+        iterations_per_save=10,
+        save_dir=None,
+        save_jit=False,
+        end_after_steps=None,
     ):
         """
         Generate rollout data and train
@@ -349,30 +353,30 @@ class PPO:
                     if data.get("kickoff"):
                         if key in total_dict_blue:
                             total_dict_blue[key] += (
-                                                            sum(value[:mid]) / mid
-                                                    ) / num_players
+                                sum(value[:mid]) / mid
+                            ) / num_players
                         else:
                             total_dict_blue[key] = (
-                                                           sum(value[:mid]) / mid
-                                                   ) / num_players
+                                sum(value[:mid]) / mid
+                            ) / num_players
                         if key in total_dict_orange:
                             total_dict_orange[key] += (
-                                                              sum(value[mid:]) / mid
-                                                      ) / num_players
+                                sum(value[mid:]) / mid
+                            ) / num_players
                         else:
                             total_dict_orange[key] = (
-                                                             sum(value[mid:]) / mid
-                                                     ) / num_players
+                                sum(value[mid:]) / mid
+                            ) / num_players
                 # to get average we need to weight the averages by steps
                 w_1 = (
-                        current_steps / num_steps
+                    current_steps / num_steps
                 )  # num_steps already includes current_steps
                 w_2 = (num_steps - current_steps) / num_steps
                 for key, value in data.get("RewardAvg").items():
                     if key in avg_dict:
                         avg_dict[key] = (
-                                                avg_dict[key] * w_2 + sum(value) * w_1
-                                        ) / num_players
+                            avg_dict[key] * w_2 + sum(value) * w_1
+                        ) / num_players
                     else:
                         avg_dict[key] = sum(value) / num_players
 
@@ -380,15 +384,15 @@ class PPO:
                     if data.get("kickoff"):
                         if key in avg_dict_blue:
                             avg_dict_blue[key] = (
-                                    avg_dict_blue[key] * w_2
-                                    + (sum(value[:mid]) / mid) * w_1
+                                avg_dict_blue[key] * w_2
+                                + (sum(value[:mid]) / mid) * w_1
                             )
                         else:
                             avg_dict_blue[key] = sum(value[:mid]) / mid
                         if key in avg_dict_orange:
                             avg_dict_orange[key] = (
-                                    avg_dict_orange[key] * w_2
-                                    + (sum(value[mid:]) / mid) * w_1
+                                avg_dict_orange[key] * w_2
+                                + (sum(value[mid:]) / mid) * w_1
                             )
                         else:
                             avg_dict_orange[key] = sum(value[mid:]) / mid
@@ -442,18 +446,31 @@ class PPO:
         self.logger.log(log_dict, step=iteration, commit=False)
 
     def evaluate_actions_selector(self, trajectory_observations, trajectory_actions):
-        trajectory_batch_size = len(trajectory_observations[0]) if isinstance(trajectory_observations, tuple) else len(
-            trajectory_observations)
-        selector_choice_probs = calculate_prob_last_selector_action_at_step_for_steps(trajectory_batch_size - 1,
-                                                                                      self.rollout_generator.selector_skip_probability_table)
-        selector_choice_probs = th.as_tensor(selector_choice_probs, device='cuda')
-        dist = self.agent.actor.get_action_distribution(trajectory_observations)
+        trajectory_batch_size = (
+            len(trajectory_observations[0])
+            if isinstance(trajectory_observations, tuple)
+            else len(trajectory_observations)
+        )
+        selector_choice_probs = calculate_prob_last_selector_action_at_step_for_steps(
+            trajectory_batch_size - 1,
+            self.rollout_generator.selector_skip_probability_table,
+        )
+        selector_choice_probs = th.as_tensor(selector_choice_probs, device=self.device)
+        dist = self.agent.actor.get_action_distribution(
+            trajectory_observations, should_copy=True
+        )
         dist_entropy = dist.entropy()[:, 0]
         log_prob_tensors = []
         entropy_tensors = []
         for step, action in enumerate(trajectory_actions):
-            log_prob_tensors.append(th.log(th.sum(dist.probs[:, 0, action] * selector_choice_probs[step])).expand(1))
-            entropy_tensors.append(th.sum(dist_entropy * selector_choice_probs[step]).expand(1))
+            log_prob_tensors.append(
+                th.log(
+                    th.sum(dist.probs[:, 0, action] * selector_choice_probs[step])
+                ).expand(1)
+            )
+            entropy_tensors.append(
+                th.sum(dist_entropy * selector_choice_probs[step]).expand(1)
+            )
         return th.cat(log_prob_tensors), th.cat(entropy_tensors)
 
     def evaluate_actions(self, observations, actions):
@@ -671,7 +688,9 @@ class PPO:
             # advantages_batch = advantages_tensor[indices]
             returns_batch = returns_tensor[indices]
             if self.is_selector:
-                cur_policy_step_log_prob_batch = cur_policy_step_log_prob_tensor[indices]
+                cur_policy_step_log_prob_batch = cur_policy_step_log_prob_tensor[
+                    indices
+                ]
                 cur_policy_step_entropy_batch = cur_policy_step_entropy_tensor[indices]
 
             for i in range(0, self.batch_size, self.minibatch_size):
@@ -679,24 +698,28 @@ class PPO:
 
                 if isinstance(obs_tensor, tuple):
                     obs = tuple(
-                        o[i: i + self.minibatch_size].to(self.device)
+                        o[i : i + self.minibatch_size].to(self.device)
                         for o in obs_batch
                     )
                 else:
-                    obs = obs_batch[i: i + self.minibatch_size].to(self.device)
+                    obs = obs_batch[i : i + self.minibatch_size].to(self.device)
 
-                act = act_batch[i: i + self.minibatch_size].to(self.device)
+                act = act_batch[i : i + self.minibatch_size].to(self.device)
                 # adv = advantages_batch[i:i + self.minibatch_size].to(self.device)
-                ret = returns_batch[i: i + self.minibatch_size].to(self.device)
-                old_log_prob = log_prob_batch[i: i + self.minibatch_size].to(
+                ret = returns_batch[i : i + self.minibatch_size].to(self.device)
+                old_log_prob = log_prob_batch[i : i + self.minibatch_size].to(
                     self.device
                 )
 
                 # TODO optimization: use forward_actor_critic instead of separate in case shared, also use GPU
                 try:
                     if self.is_selector:
-                        log_prob = cur_policy_step_log_prob_batch[i: i + self.minibatch_size]
-                        entropy = -th.mean(cur_policy_step_entropy_batch[i : i + self.minibatch_size])
+                        log_prob = cur_policy_step_log_prob_batch[
+                            i : i + self.minibatch_size
+                        ]
+                        entropy = -th.mean(
+                            cur_policy_step_entropy_batch[i : i + self.minibatch_size]
+                        )
                         dist = None
                     else:
                         log_prob, entropy, dist = self.evaluate_actions(
@@ -748,7 +771,7 @@ class PPO:
                 kl_loss = 0
                 if self.kl_models_weights is not None:
                     for k, (model, kl_coef, half_life) in enumerate(
-                            self.kl_models_weights
+                        self.kl_models_weights
                     ):
                         if half_life is not None:
                             kl_coef *= 0.5 ** (self.total_steps / half_life)
@@ -760,11 +783,11 @@ class PPO:
                         kl_loss += kl_coef * div
 
                 loss = (
-                               policy_loss
-                               + self.ent_coef * entropy_loss
-                               + self.vf_coef * value_loss
-                               + kl_loss
-                       ) / (self.batch_size / self.minibatch_size)
+                    policy_loss
+                    + self.ent_coef * entropy_loss
+                    + self.vf_coef * value_loss
+                    + kl_loss
+                ) / (self.batch_size / self.minibatch_size)
 
                 if not torch.isfinite(loss).all():
                     print("Non-finite loss, skipping", n)
@@ -956,14 +979,14 @@ class PPO:
 # https://github.com/AechPro/distrib-rl/blob/main/distrib_rl/policy_optimization/learning_rate_controllers/pid_learning_rate_controller.py
 class PIDLearningRateController(object):
     def __init__(
-            self,
-            target=0.025,
-            kp=0.1,
-            ki=0,
-            kd=0,
-            min_output=1e-7,
-            max_output=1,
-            max_clip_error=0.05,
+        self,
+        target=0.025,
+        kp=0.1,
+        ki=0,
+        kd=0,
+        min_output=1e-7,
+        max_output=1,
+        max_clip_error=0.05,
     ):
         self.target = target
         self.kp = kp
