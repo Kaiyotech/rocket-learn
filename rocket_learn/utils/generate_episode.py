@@ -1,3 +1,4 @@
+import copy
 import os
 import random
 import string
@@ -237,6 +238,7 @@ def generate_episode(
                     for idx, should_use in enumerate(do_selector):
                         if should_use:
                             action_indices.append([potential_action_indices[idx]])
+                            last_model_action[idx] = potential_action_indices[idx]
                         else:
                             action_indices.append([last_model_action[idx]])
                     action_indices = torch.as_tensor(action_indices)
@@ -479,7 +481,7 @@ def generate_episode(
                     # print(f"actions going to buffer are {act} and rewards are {rew}")
             elif ngp_reward is not None:
                 accumulated_old_obs.append(old_obs)
-                accumulated_all_indices.append(all_indices)
+                accumulated_all_indices.append(copy.deepcopy(all_indices))  # I don't know why indices is the only one with an issue
                 accumulated_rewards.append(rewards)
                 accumulated_all_log_probs.append(all_log_probs)
                 accumulated_states.append(info["state"])
