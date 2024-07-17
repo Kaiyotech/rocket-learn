@@ -339,7 +339,7 @@ def generate_episode(
                                 calculate_action_log_prob(
                                     steps_since_episode_start,
                                     episode_action_distributions[index],
-                                    action_indices,
+                                    action_indices[0],
                                     selector_skip_probability_table,
                                 )
                             )
