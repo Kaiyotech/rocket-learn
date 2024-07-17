@@ -83,7 +83,8 @@ class PPO:
         num_actions=0,
         extra_prints=False,
     ):
-        self.is_selector = rollout_generator.selector_skip_k is not None
+        self.is_selector = rollout_generator.selector_skip_k is not None  # noqa
+        self.enable_ep_action_dist_calcs = rollout_generator.enable_ep_action_dist_calcs  # noqa
         if self.is_selector:
             assert (
                 kl_models_weights is None
@@ -565,7 +566,7 @@ class PPO:
             dones = np.stack(buffer.dones)
             learnable_mask = np.stack(buffer.learnable)
             num_unlearnable += len(learnable_mask) - np.sum(learnable_mask)
-            if self.is_selector:
+            if self.is_selector and self.enable_ep_action_dist_calcs:
                 cur_policy_step_log_prob, cur_policy_step_entropy = (
                     self.evaluate_actions_selector(x, th.from_numpy(actions))
                 )
@@ -634,7 +635,7 @@ class PPO:
         log_prob_tensor = th.cat(log_prob_tensors).float()
         # advantages_tensor = th.cat(advantage_tensors)
         returns_tensor = th.cat(returns_tensors).float()
-        if self.is_selector:
+        if self.is_selector and self.enable_ep_action_dist_calcs:
             cur_policy_step_log_prob_tensor = th.cat(cur_policy_step_log_prob_tensors)
             cur_policy_step_entropy_tensor = th.cat(cur_policy_step_entropy_tensors)
 
@@ -676,7 +677,7 @@ class PPO:
             log_prob_batch = log_prob_tensor[indices]
             # advantages_batch = advantages_tensor[indices]
             returns_batch = returns_tensor[indices]
-            if self.is_selector:
+            if self.is_selector and self.enable_ep_action_dist_calcs:
                 cur_policy_step_log_prob_batch = cur_policy_step_log_prob_tensor[
                     indices
                 ]
@@ -702,7 +703,7 @@ class PPO:
 
                 # TODO optimization: use forward_actor_critic instead of separate in case shared, also use GPU
                 try:
-                    if self.is_selector:
+                    if self.is_selector and self.enable_ep_action_dist_calcs:
                         log_prob = cur_policy_step_log_prob_batch[
                             i : i + self.minibatch_size
                         ]
@@ -811,7 +812,7 @@ class PPO:
                         print("\tObs has inf:", not obs.isfinite().all())
                     continue
 
-                loss.backward(retain_graph=self.is_selector)
+                loss.backward(retain_graph=self.is_selector and self.enable_ep_action_dist_calcs)
 
                 # Unbiased low variance KL div estimator from http://joschu.net/blog/kl-approx.html
                 total_kl_div += th.mean((ratio - 1) - (log_prob - old_log_prob)).item()

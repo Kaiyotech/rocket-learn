@@ -51,6 +51,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             selector_skip_k=None,
             selector_skip_schedule=None,
             selector_skip_probability_table_size=None,
+            enable_ep_action_dist_calcs=False,
     ):
         self.lastsave_ts = None
         self.name = name
@@ -59,6 +60,7 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
         self.selector_skip_k = selector_skip_k
         self.selector_skip_schedule = None
         self.selector_skip_probability_table_size = selector_skip_probability_table_size
+        self.enable_ep_action_dist_calcs = enable_ep_action_dist_calcs
         if self.selector_skip_k is not None:
             self.selector_skip_schedule = selector_skip_schedule
             # do selector schedule based on n_updates here
@@ -66,9 +68,11 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             n_updates = 0 if n_updates is None else int(n_updates)
             self.selector_skip_k = self.selector_skip_schedule(n_updates)
             self.redis.set("selector_skip_k", self.selector_skip_k)
-            self.selector_skip_probability_table = generate_selector_skip_probability_table(selector_skip_probability_table_size, selector_skip_k)
+            if enable_ep_action_dist_calcs:
+                self.selector_skip_probability_table = generate_selector_skip_probability_table(selector_skip_probability_table_size, selector_skip_k)
         else:
             self.redis.delete("selector_skip_k")
+        self.enable_ep_action_dist_calcs = enable_ep_action_dist_calcs
         self.red_pipe = self.redis.pipeline()
         self.logger = logger
         self.pretrained_agents_keys = []
@@ -465,7 +469,8 @@ class RedisRolloutGenerator(BaseRolloutGenerator):
             new_seconds = test_selector_skip(100_000, self.selector_skip_k)
             self.logger.log({"Selector_skip_seconds": new_seconds}, commit=False)
             self.redis.set("selector_skip_k", self.selector_skip_k)
-            self.selector_skip_probability_table = generate_selector_skip_probability_table(self.selector_skip_probability_table_size, self.selector_skip_k)
+            if self.enable_ep_action_dist_calcs:
+                self.selector_skip_probability_table = generate_selector_skip_probability_table(self.selector_skip_probability_table_size, self.selector_skip_k)
 
         if n_updates % self.model_freq == 0:
             print("Adding model to pool...")

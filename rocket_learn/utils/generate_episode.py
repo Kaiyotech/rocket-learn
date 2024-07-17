@@ -41,6 +41,7 @@ def generate_episode(
     selector_skip_k=None,
     min_learnable_action_prob=None,
     selector_skip_probability_table=None,
+    enable_ep_action_dist_calcs=False
 ) -> (List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
@@ -145,7 +146,7 @@ def generate_episode(
             break
     if selector:
         send_gamestates = True  # needed for evals and everything
-        if not evaluate:
+        if not evaluate and enable_ep_action_dist_calcs:
             if selector_skip_probability_table is not None:
                 max_size = len(selector_skip_probability_table)
                 episode_action_distributions = [
@@ -220,7 +221,7 @@ def generate_episode(
                 # obs = obs[:-1]
 
                 dist = policy.get_action_distribution(obs)
-                if selector and not evaluate:
+                if selector and not evaluate and enable_ep_action_dist_calcs:
                     for index, probs in enumerate(dist.probs[:, 0, :]):
                         episode_action_distributions[index][
                             steps_since_episode_start
@@ -252,7 +253,7 @@ def generate_episode(
 
                 all_indices.extend(list(action_indices.numpy()))
                 all_actions.extend(list(actions))
-                if selector and not evaluate:
+                if selector and not evaluate and enable_ep_action_dist_calcs:
                     log_probs = torch.zeros(
                         len(episode_action_distributions), dtype=torch.float32
                     )
@@ -309,7 +310,7 @@ def generate_episode(
 
                     elif isinstance(policy, Policy):
                         dist = policy.get_action_distribution(obs)
-                        if selector and not evaluate:
+                        if selector and not evaluate and enable_ep_action_dist_calcs:
                             episode_action_distributions[index][
                                 steps_since_episode_start
                             ] = dist.probs
@@ -333,7 +334,7 @@ def generate_episode(
 
                         all_indices.extend(list(action_indices.numpy()))
                         all_actions.append(actions)
-                        if selector and not evaluate:
+                        if selector and not evaluate and enable_ep_action_dist_calcs:
                             log_probs = torch.as_tensor(
                                 calculate_action_log_prob(
                                     steps_since_episode_start,
@@ -411,7 +412,7 @@ def generate_episode(
                         data_ticks_passed = 0
                         gather_data_ticks = random.uniform(15, 45)
                         to_save.append(gamestate_to_replay_array(info["state"]))
-            if selector and not evaluate:
+            if selector and not evaluate and enable_ep_action_dist_calcs:
                 steps_since_episode_start += 1
 
             # print(f"rewards in python are {rewards}")

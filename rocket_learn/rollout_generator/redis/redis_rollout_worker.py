@@ -105,7 +105,8 @@ class RedisRolloutWorker:
         selector=False,
         selector_parser=None,
         min_learnable_action_prob=None,
-        selector_skip_probability_table_size=None
+        selector_skip_probability_table_size=None,
+        enable_ep_action_dist_calcs=False,
     ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
@@ -127,6 +128,8 @@ class RedisRolloutWorker:
             self.selector_skip_probability_table = generate_selector_skip_probability_table(selector_skip_probability_table_size, selector_skip_k)
         else:
             self.selector_skip_probability_table = None
+        self.enable_ep_action_dist_calcs = enable_ep_action_dist_calcs
+
         self.available_version = None
 
         self.matchmaker = matchmaker
@@ -533,7 +536,8 @@ class RedisRolloutWorker:
                             ngp_reward=self.ngp_reward,
                             selector_skip_k=selector_skips,
                             min_learnable_action_prob=self.min_learnable_action_prob,
-                            selector_skip_probability_table=self.selector_skip_probability_table
+                            selector_skip_probability_table=self.selector_skip_probability_table,
+                            enable_ep_action_dist_calcs=self.enable_ep_action_dist_calcs,
                         )
                     )
 
