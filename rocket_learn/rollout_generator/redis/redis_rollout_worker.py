@@ -128,6 +128,7 @@ class RedisRolloutWorker:
             if selector_skip_probability_table_size is not None:
                 self.selector_skip_probability_table = generate_selector_skip_probability_table(selector_skip_probability_table_size, selector_skip_k)
             else:
+                self.selector_skip_probability_table = None
                 assert not enable_ep_action_dist_calcs
         else:
             self.selector_skip_probability_table = None
