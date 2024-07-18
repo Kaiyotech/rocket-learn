@@ -448,19 +448,22 @@ class PPO:
         selector_choice_probs = self.rollout_generator.selector_skip_probability_table[
             :trajectory_batch_size, :trajectory_batch_size
         ]
+
+        trajectory_actions = trajectory_actions.to(self.device)
         selector_choice_probs = th.as_tensor(
             selector_choice_probs, device=self.device, dtype=th.float32
         )
-        dist = self.agent.actor.get_action_distribution(
-            trajectory_observations, should_copy=True
-        )
-        trajectory_actions = trajectory_actions.to(self.device)
-        dist_entropy = dist.entropy()[:, 0]
-        dist_probs = dist.probs[:, 0, :]
-        log_prob_tensor = th.log(
-            th.matmul(selector_choice_probs, dist_probs).gather(1, trajectory_actions)
-        )[:, 0]
-        entropy_tensor = th.matmul(selector_choice_probs, dist_entropy)
+
+        with torch.autograd.graph.save_on_cpu():
+            dist = self.agent.actor.get_action_distribution(
+                trajectory_observations, should_copy=True
+            )
+            dist_entropy = dist.entropy()[:, 0]
+            dist_probs = dist.probs[:, 0, :]
+            log_prob_tensor = th.log(
+                th.matmul(selector_choice_probs, dist_probs).gather(1, trajectory_actions)
+            )[:, 0]
+            entropy_tensor = th.matmul(selector_choice_probs, dist_entropy)
         return log_prob_tensor, entropy_tensor
 
     def evaluate_actions(self, observations, actions):
