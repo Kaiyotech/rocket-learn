@@ -26,6 +26,9 @@ from rocket_learn.ppo import PIDLearningRateController
 from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGenerator
 
 
+torch.set_default_dtype(torch.float32)
+
+
 class ShuffleTrajectoryPPO:
     """
     Proximal Policy Optimization algorithm (PPO)
@@ -516,14 +519,14 @@ class ShuffleTrajectoryPPO:
         gae_lambda,
     ):
         advantages = np.zeros_like(rewards)
-        last_gae_lam = 0
+        last_gae_lam = 0.
         size = len(advantages)
         for step in range(size - 1, -1, -1):
             v_target = (
                 rewards[step] + gamma * next_values[step] * step_non_terminating[step]
             )
             delta = v_target - values[step]
-            last_gae_lam = delta + gamma * gae_lambda * step_non_done * last_gae_lam
+            last_gae_lam = delta + gamma * gae_lambda * step_non_done[step] * last_gae_lam
             advantages[step] = last_gae_lam
         return advantages
 
@@ -538,7 +541,7 @@ class ShuffleTrajectoryPPO:
 
         buffers = list(buffers_iterator)
         n_buffers = len(buffers)
-        obs_is_tuple = isinstance(buffers[0].observations[0], tuple)
+        obs_is_tuple = isinstance(buffers[0].observations[0], tuple) or isinstance(buffers[0].observations[0], list)
         # ---------- START LOGGING BLOCK ----------
         for buffer in buffers:
 
@@ -595,8 +598,8 @@ class ShuffleTrajectoryPPO:
 
         n = 0
 
-        if self.jit_tracer is None:
-            self.jit_tracer = obs_tensor[0].to(self.device)
+        # if self.jit_tracer is None:
+        #     self.jit_tracer = obs_tensor[0].to(self.device)
 
         print("Training network...")
 
@@ -624,6 +627,10 @@ class ShuffleTrajectoryPPO:
                 buf_size = buffer.size()
                 if buf_size + trajectory_batch_cur_timesteps > self.batch_size:
                     break
+                # Explained below
+                next_value_pred_indices += [
+                    trajectory_batch_cur_timesteps + idx for idx in range(1, buf_size)
+                ]
                 trajectory_batch_cur_timesteps += buf_size
                 if obs_is_tuple:
                     transposed = tuple(zip(*buffer.observations))
@@ -645,15 +652,12 @@ class ShuffleTrajectoryPPO:
                 rewards = np.stack(buffer.rewards)
                 dones = np.stack(buffer.dones)
                 learnable_mask = np.stack(buffer.learnable)
-                # Explained below
-                next_value_pred_indices += [
-                    trajectory_batch_cur_timesteps + idx for idx in range(1, buf_size)
-                ]
+
                 next_value_pred_indices.append(next_value_pred_indices[-1])
                 batch_obs_tensors.append(obs_tensor)
                 batch_actions_tensors.append(actions_tensor)
                 batch_log_probs_tensors.append(log_probs_tensor)
-                batch_rewards_list.append(rewards)
+                batch_rewards_list.append(rewards.astype(np.float32))
                 batch_dones_list.append(dones)
                 batch_learnable_mask_list.append(learnable_mask)
             # A time step is a tuple where, for a given state:
@@ -681,9 +685,9 @@ class ShuffleTrajectoryPPO:
                 batch_obs_tensor = tuple(th.cat(t).float() for t in transposed)
             else:
                 batch_obs_tensor = th.cat(batch_obs_tensors).float()
-            batch_value_preds_tensor = self.agent.critic(batch_obs_tensor)
+            batch_value_preds_tensor = self.agent.critic(batch_obs_tensor).flatten()
             batch_value_preds = (
-                batch_value_preds_tensor.detach().cpu().numpy().flatten()
+                batch_value_preds_tensor.detach().cpu().numpy()
             )
             batch_next_value_preds = batch_value_preds[next_value_pred_indices]
             batch_dones = np.concatenate(batch_dones_list)
@@ -706,6 +710,8 @@ class ShuffleTrajectoryPPO:
                 batch_next_value_preds,
                 step_non_terminating,
                 step_non_done,
+                self.gamma,
+                self.gae_lambda
             )
             batch_advantages_tensor = th.from_numpy(advantages).to(self.device)
             batch_returns_tensor = batch_advantages_tensor + batch_value_preds_tensor
@@ -940,7 +946,7 @@ class ShuffleTrajectoryPPO:
         :param current_step: the current iteration when saved. Use to later continue training
         :param save_actor_jit: save the policy network as a torch jit file for rlbot use
         """
-
+        assert not save_actor_jit, "not implemented"
         version_str = str(self.logger.project) + "_" + str(current_step)
         version_dir = os.path.join(save_location, version_str)
 

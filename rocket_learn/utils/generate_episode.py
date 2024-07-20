@@ -21,6 +21,7 @@ from rocket_learn.utils.util import gamestate_to_replay_array, make_python_state
 
 # import pickle
 
+torch.set_default_dtype(torch.float32)
 
 def generate_episode(
     env: Gym,
