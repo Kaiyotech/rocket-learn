@@ -89,6 +89,9 @@ class ShuffleTrajectoryPPO:
         self.enable_ep_action_dist_calcs = (
             rollout_generator.enable_ep_action_dist_calcs
         )  # noqa
+        assert (
+            minibatch_size is None
+        ), "Shuffle Trajectory PPO does not use minibatching"
         if self.is_selector:
             assert (
                 kl_models_weights is None
