@@ -467,9 +467,7 @@ class ShuffleTrajectoryPPO:
         )
 
         with torch.autograd.graph.save_on_cpu():
-            dist = self.agent.actor.get_action_distribution(
-                trajectory_observations
-            )
+            dist = self.agent.actor.get_action_distribution(trajectory_observations)
             dist_entropy = dist.entropy()[:, 0]
             dist_probs = dist.probs[:, 0, :]
             log_prob_tensor = th.log(
@@ -611,7 +609,6 @@ class ShuffleTrajectoryPPO:
         )
         t0 = time.perf_counter_ns()
         self.agent.optimizer.zero_grad(set_to_none=self.zero_grads_with_none)
-        trajectories_per_epoch = int(self.batch_size / ep_steps.mean())
         for e in range(self.epochs):
             batch_obs_tensors = []
             batch_actions_tensors = []
@@ -620,11 +617,13 @@ class ShuffleTrajectoryPPO:
             batch_dones_list = []
             batch_learnable_mask_list = []
             next_value_pred_indices = []
-            index_order = th.randperm(n_buffers)[:trajectories_per_epoch]
+            index_order = th.randperm(n_buffers)
             trajectory_batch_cur_timesteps = 0
             for buffer_index in index_order:
                 buffer = buffers[buffer_index]
                 buf_size = buffer.size()
+                if buf_size + trajectory_batch_cur_timesteps > self.batch_size:
+                    break
                 if obs_is_tuple:
                     transposed = tuple(zip(*buffer.observations))
                     obs_tensor = tuple(
