@@ -98,9 +98,6 @@ class ShuffleTrajectoryPPO:
             assert (
                 kl_models_weights is None
             ), "Cannot use selector with a KL divergence loss term"
-            assert (
-                "should_copy" in signature(agent.actor.forward).parameters
-            ), "Actor model for selector should allow weight copying via a should_copy parameter"
 
         self.extra_prints = extra_prints
         self.num_actions = num_actions
@@ -471,7 +468,7 @@ class ShuffleTrajectoryPPO:
 
         with torch.autograd.graph.save_on_cpu():
             dist = self.agent.actor.get_action_distribution(
-                trajectory_observations, should_copy=True
+                trajectory_observations
             )
             dist_entropy = dist.entropy()[:, 0]
             dist_probs = dist.probs[:, 0, :]
@@ -649,7 +646,6 @@ class ShuffleTrajectoryPPO:
                 dones = np.stack(buffer.dones)
                 learnable_mask = np.stack(buffer.learnable)
 
-                next_value_pred_indices.append(next_value_pred_indices[-1])
                 batch_obs_tensors.append(obs_tensor)
                 batch_actions_tensors.append(actions_tensor)
                 batch_log_probs_tensors.append(log_probs_tensor)
@@ -660,6 +656,7 @@ class ShuffleTrajectoryPPO:
                 next_value_pred_indices += [
                     trajectory_batch_cur_timesteps + idx for idx in range(1, buf_size)
                 ]
+                next_value_pred_indices.append(next_value_pred_indices[-1])
                 trajectory_batch_cur_timesteps += buf_size
             # A time step is a tuple where, for a given state:
             # - the obs is constructed from the state
@@ -835,9 +832,7 @@ class ShuffleTrajectoryPPO:
                     print("\tObs has inf:", not batch_obs_tensor.isfinite().all())
                 continue
 
-            loss.backward(
-                retain_graph=self.is_selector and self.enable_ep_action_dist_calcs
-            )
+            loss.backward()
 
             # Unbiased low variance KL div estimator from http://joschu.net/blog/kl-approx.html
             total_kl_div += th.mean((ratio - 1) - (log_prob - old_log_prob)).item()
