@@ -25,7 +25,6 @@ from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.ppo import PIDLearningRateController
 from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGenerator
 
-
 torch.set_default_dtype(torch.float32)
 
 
@@ -519,14 +518,16 @@ class ShuffleTrajectoryPPO:
         gae_lambda,
     ):
         advantages = np.zeros_like(rewards)
-        last_gae_lam = 0.
+        last_gae_lam = 0.0
         size = len(advantages)
         for step in range(size - 1, -1, -1):
             v_target = (
                 rewards[step] + gamma * next_values[step] * step_non_terminating[step]
             )
             delta = v_target - values[step]
-            last_gae_lam = delta + gamma * gae_lambda * step_non_done[step] * last_gae_lam
+            last_gae_lam = (
+                delta + gamma * gae_lambda * step_non_done[step] * last_gae_lam
+            )
             advantages[step] = last_gae_lam
         return advantages
 
@@ -541,7 +542,9 @@ class ShuffleTrajectoryPPO:
 
         buffers = list(buffers_iterator)
         n_buffers = len(buffers)
-        obs_is_tuple = isinstance(buffers[0].observations[0], tuple) or isinstance(buffers[0].observations[0], list)
+        obs_is_tuple = isinstance(buffers[0].observations[0], tuple) or isinstance(
+            buffers[0].observations[0], list
+        )
         # ---------- START LOGGING BLOCK ----------
         for buffer in buffers:
 
@@ -611,7 +614,7 @@ class ShuffleTrajectoryPPO:
         )
         t0 = time.perf_counter_ns()
         self.agent.optimizer.zero_grad(set_to_none=self.zero_grads_with_none)
-
+        trajectories_per_epoch = int(self.batch_size / ep_steps.mean())
         for e in range(self.epochs):
             batch_obs_tensors = []
             batch_actions_tensors = []
@@ -620,18 +623,11 @@ class ShuffleTrajectoryPPO:
             batch_dones_list = []
             batch_learnable_mask_list = []
             next_value_pred_indices = []
-            index_order = th.randperm(n_buffers)
+            index_order = th.randperm(n_buffers)[:trajectories_per_epoch]
             trajectory_batch_cur_timesteps = 0
             for buffer_index in index_order:
                 buffer = buffers[buffer_index]
                 buf_size = buffer.size()
-                if buf_size + trajectory_batch_cur_timesteps > self.batch_size:
-                    break
-                # Explained below
-                next_value_pred_indices += [
-                    trajectory_batch_cur_timesteps + idx for idx in range(1, buf_size)
-                ]
-                trajectory_batch_cur_timesteps += buf_size
                 if obs_is_tuple:
                     transposed = tuple(zip(*buffer.observations))
                     obs_tensor = tuple(
@@ -660,6 +656,11 @@ class ShuffleTrajectoryPPO:
                 batch_rewards_list.append(rewards.astype(np.float32))
                 batch_dones_list.append(dones)
                 batch_learnable_mask_list.append(learnable_mask)
+                # Explained below
+                next_value_pred_indices += [
+                    trajectory_batch_cur_timesteps + idx for idx in range(1, buf_size)
+                ]
+                trajectory_batch_cur_timesteps += buf_size
             # A time step is a tuple where, for a given state:
             # - the obs is constructed from the state
             # - the action is the result of the obs
@@ -686,9 +687,7 @@ class ShuffleTrajectoryPPO:
             else:
                 batch_obs_tensor = th.cat(batch_obs_tensors).float()
             batch_value_preds_tensor = self.agent.critic(batch_obs_tensor).flatten()
-            batch_value_preds = (
-                batch_value_preds_tensor.detach().cpu().numpy()
-            )
+            batch_value_preds = batch_value_preds_tensor.detach().cpu().numpy()
             batch_next_value_preds = batch_value_preds[next_value_pred_indices]
             batch_dones = np.concatenate(batch_dones_list)
             batch_rewards = np.concatenate(batch_rewards_list)
@@ -711,10 +710,12 @@ class ShuffleTrajectoryPPO:
                 step_non_terminating,
                 step_non_done,
                 self.gamma,
-                self.gae_lambda
+                self.gae_lambda,
             )
             batch_advantages_tensor = th.from_numpy(advantages).to(self.device)
-            batch_returns_tensor = batch_advantages_tensor + batch_value_preds_tensor
+            batch_returns_tensor = (
+                batch_advantages_tensor + batch_value_preds_tensor.detach()
+            )
             batch_actions_tensor = th.cat(batch_actions_tensors).to(self.device)
             if self.is_selector and self.enable_ep_action_dist_calcs:
                 cur_policy_trajectories_log_probs = []
@@ -762,7 +763,7 @@ class ShuffleTrajectoryPPO:
                 )
             values_pred = batch_value_preds_tensor
             values_pred = th.squeeze(values_pred)
-            adv = ret - values_pred.detach()
+            adv = batch_advantages_tensor
             adv = (adv - th.mean(adv)) / (th.std(adv) + 1e-8)
 
             # clipped surrogate loss
