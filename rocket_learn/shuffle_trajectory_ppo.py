@@ -478,7 +478,8 @@ class ShuffleTrajectoryPPO:
                 )
             )[:, 0]
             entropy_tensor = th.matmul(selector_choice_probs, dist_entropy)
-        return log_prob_tensor, entropy_tensor
+            step_entropy = self.agent.actor.entropy(dist, trajectory_actions)
+        return log_prob_tensor, entropy_tensor, step_entropy
 
     def evaluate_actions(self, observations, actions):
         """
@@ -588,6 +589,7 @@ class ShuffleTrajectoryPPO:
         tot_loss = 0
         tot_policy_loss = 0
         tot_entropy_loss = 0
+        tot_step_entropy_loss = 0
         tot_value_loss = 0
         total_kl_div = 0
         tot_clipped = 0
@@ -717,10 +719,11 @@ class ShuffleTrajectoryPPO:
             if self.is_selector and self.enable_ep_action_dist_calcs:
                 cur_policy_trajectories_log_probs = []
                 cur_policy_trajectories_entropy = []
+                cur_policy_trajectories_step_entropy = []
                 for obs_tensor, actions_tensor in zip(
-                    batch_obs_tensors, batch_actions_tensors
+                        batch_obs_tensors, batch_actions_tensors
                 ):
-                    cur_policy_trajectory_log_probs, cur_policy_trajectory_entropy = (
+                    cur_policy_trajectory_log_probs, cur_policy_trajectory_entropy, cur_policy_trajectory_step_entropy = (
                         self.evaluate_actions_selector(obs_tensor, actions_tensor)
                     )
                     cur_policy_trajectories_log_probs.append(
@@ -729,11 +732,17 @@ class ShuffleTrajectoryPPO:
                     cur_policy_trajectories_entropy.append(
                         cur_policy_trajectory_entropy
                     )
+                    cur_policy_trajectories_step_entropy.append(
+                        cur_policy_trajectory_step_entropy
+                    )
                 batch_cur_policy_log_probs_tensor = th.cat(
                     cur_policy_trajectories_log_probs
                 )
                 batch_cur_policy_entropy_tensor = th.cat(
                     cur_policy_trajectories_entropy
+                )
+                batch_cur_policy_step_entropy_tensor = th.cat(
+                    cur_policy_trajectories_step_entropy
                 )
             else:
                 (
@@ -747,6 +756,7 @@ class ShuffleTrajectoryPPO:
             old_log_prob = batch_log_probs_tensor
             log_prob = batch_cur_policy_log_probs_tensor
             entropy = -th.mean(batch_cur_policy_entropy_tensor)
+            entropy_step = -th.mean(batch_cur_policy_step_entropy_tensor)
             diff_log_prob = log_prob - old_log_prob
             # stabilize the ratio for small log prob
             ratio = torch.where(
@@ -839,6 +849,7 @@ class ShuffleTrajectoryPPO:
             tot_loss += loss.item()
             tot_policy_loss += policy_loss.item()
             tot_entropy_loss += entropy_loss.item()
+            tot_step_entropy_loss += entropy_step.item()
             tot_value_loss += value_loss.item()
             tot_clipped += th.mean((th.abs(ratio - 1) > self.clip_range).float()).item()
             n += 1
@@ -885,6 +896,7 @@ class ShuffleTrajectoryPPO:
             "ppo/loss": tot_loss / n,
             "ppo/policy_loss": tot_policy_loss / n,
             "ppo/entropy_loss": tot_entropy_loss / n,
+            "ppo/entropy_step_loss": tot_step_entropy_loss / n,
             "ppo/value_loss": tot_value_loss / n,
             "ppo/mean_kl": total_kl_div / n,
             "ppo/clip_fraction": tot_clipped / n,
