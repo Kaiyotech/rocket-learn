@@ -107,12 +107,16 @@ class RedisRolloutWorker:
         min_learnable_action_prob=None,
         selector_skip_probability_table_size=None,
         enable_ep_action_dist_calcs=False,
+        ngp_action_parser=None,
     ):
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
         self.name = name
         self.rust_sim = rust_sim
         self.ngp_reward = ngp_reward
+        self.ngp_action_parser = ngp_action_parser
+        if ngp_reward is not None:
+            assert ngp_action_parser is not None, "Required to provide parser to get actual 8 actions to feed ngp"
         self.selector = selector
         self.selector_parser = selector_parser
         self.min_learnable_action_prob = min_learnable_action_prob
@@ -542,6 +546,7 @@ class RedisRolloutWorker:
                             min_learnable_action_prob=self.min_learnable_action_prob,
                             selector_skip_probability_table=self.selector_skip_probability_table,
                             enable_ep_action_dist_calcs=self.enable_ep_action_dist_calcs,
+                            ngp_action_parser=self.ngp_action_parser,
                         )
                     )
 

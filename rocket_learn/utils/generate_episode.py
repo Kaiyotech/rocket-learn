@@ -42,7 +42,8 @@ def generate_episode(
     selector_skip_k=None,
     min_learnable_action_prob=None,
     selector_skip_probability_table=None,
-    enable_ep_action_dist_calcs=False
+    enable_ep_action_dist_calcs=False,
+    ngp_action_parser=None,
 ) -> (List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
@@ -84,6 +85,7 @@ def generate_episode(
         accumulated_states = []
         accumulated_dones = []
         accumulated_infos = []
+        accumulated_actions = []
         send_gamestates = True
 
     if scoreboard is not None:
@@ -489,6 +491,7 @@ def generate_episode(
                 accumulated_states.append(info["state"])
                 accumulated_dones.append(done + 2 * truncated)
                 accumulated_infos.append(info)
+                accumulated_actions.append(ngp_action_parser.parse_actions(all_actions, info["state"]))
             # TODO skipping for now for rust to not hack on _match
             if progress is not None:
                 progress.update()
@@ -503,7 +506,7 @@ def generate_episode(
                     np.save(file_name, np.asarray(to_save))
                 if ngp_reward is not None:
                     updated_rewards = ngp_reward.add_ngp_rewards(
-                        accumulated_rewards, accumulated_states, latest_policy_indices
+                        accumulated_rewards, accumulated_states, latest_policy_indices, accumulated_actions
                     )
                     for (
                         old_obs_list,
