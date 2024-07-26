@@ -611,248 +611,282 @@ class ShuffleTrajectoryPPO:
         )
         t0 = time.perf_counter_ns()
         self.agent.optimizer.zero_grad(set_to_none=self.zero_grads_with_none)
-        for e in range(self.epochs):
-            batch_obs_tensors = []
-            batch_actions_tensors = []
-            batch_log_probs_tensors = []
-            batch_rewards_list = []
-            batch_dones_list = []
-            batch_learnable_mask_list = []
-            next_value_pred_indices = []
-            index_order = th.randperm(n_buffers)
-            trajectory_batch_cur_timesteps = 0
-            for buffer_index in index_order:
-                buffer = buffers[buffer_index]
-                buf_size = buffer.size()
-                if buf_size + trajectory_batch_cur_timesteps > self.batch_size:
-                    break
-                if obs_is_tuple:
-                    transposed = tuple(zip(*buffer.observations))
-                    obs_tensor = tuple(
-                        torch.from_numpy(np.vstack(t)).float().to(self.device)
-                        for t in transposed
-                    )
-                else:  # use just this section for advanced obs
-                    obs_tensor = (
-                        th.from_numpy(np.vstack(buffer.observations))
-                        .float()
-                        .to(self.device)
-                    )
+        n_minibatches_per_batch = self.batch_size / self.minibatch_size
+        for _ in range(self.epochs):
+            for _ in range(n_minibatches_per_batch):
+                minibatch_obs_tensors = []
+                minibatch_actions_tensors = []
+                minibatch_log_probs_tensors = []
+                minibatch_rewards_list = []
+                minibatch_dones_list = []
+                minibatch_learnable_mask_list = []
+                next_value_pred_indices = []
+                index_order = th.randperm(n_buffers)
+                trajectory_minibatch_cur_timesteps = 0
+                for buffer_index in index_order:
+                    buffer = buffers[buffer_index]
+                    buf_size = buffer.size()
+                    if (
+                        buf_size + trajectory_minibatch_cur_timesteps
+                        > self.minibatch_size
+                    ):
+                        break
+                    if obs_is_tuple:
+                        transposed = tuple(zip(*buffer.observations))
+                        obs_tensor = tuple(
+                            torch.from_numpy(np.vstack(t)).float().to(self.device)
+                            for t in transposed
+                        )
+                    else:  # use just this section for advanced obs
+                        obs_tensor = (
+                            th.from_numpy(np.vstack(buffer.observations))
+                            .float()
+                            .to(self.device)
+                        )
 
-                actions_tensor = th.from_numpy(np.stack(buffer.actions)).to(self.device)
-                log_probs_tensor = th.from_numpy(np.stack(buffer.log_probs)).to(
+                    actions_tensor = th.from_numpy(np.stack(buffer.actions)).to(
+                        self.device
+                    )
+                    log_probs_tensor = th.from_numpy(np.stack(buffer.log_probs)).to(
+                        self.device
+                    )
+                    rewards = np.stack(buffer.rewards)
+                    dones = np.stack(buffer.dones)
+                    learnable_mask = np.stack(buffer.learnable)
+
+                    minibatch_obs_tensors.append(obs_tensor)
+                    minibatch_actions_tensors.append(actions_tensor)
+                    minibatch_log_probs_tensors.append(log_probs_tensor)
+                    minibatch_rewards_list.append(rewards.astype(np.float32))
+                    minibatch_dones_list.append(dones)
+                    minibatch_learnable_mask_list.append(learnable_mask)
+                    # Explained below
+                    next_value_pred_indices += [
+                        trajectory_minibatch_cur_timesteps + idx
+                        for idx in range(1, buf_size)
+                    ]
+                    next_value_pred_indices.append(next_value_pred_indices[-1])
+                    trajectory_minibatch_cur_timesteps += buf_size
+                # A time step is a tuple where, for a given state:
+                # - the obs is constructed from the state
+                # - the action is the result of the obs
+                # - the reward is the reward from the state after having taken the action
+                # - the done is the result of the termination / truncation conditions on the state after having taken the action
+                # If the next time step is terminated, then there is no action taken on the next time step.
+                # We don't use the value function, instead we just use zero as the expected returns for the next state
+                # Otherwise, we do use it.
+                # When the next time step is terminated or truncated, *we don't have that observation*.
+                # There is no time step in here that includes that observation.
+                # The advantages calculation wants the value function's result for the following timestep,
+                # including for the last time step we have.
+                # For a given time step, the value prediction we want to use for it is the
+                # value prediction for the next observation. We don't have the last observation,
+                # so the best we can do is just use the value prediction for the last time step we have
+                # twice.
+                # We only want to use the last value prediction in a trajectory if the trajectory was
+                # truncated anyway, so the impact of this is pretty negligible.
+
+                # ---------- START BATCH QUANTITY DEFINITIONS ----------
+                if obs_is_tuple:
+                    transposed = zip(*minibatch_obs_tensors)
+                    minibatch_obs_tensor = tuple(th.cat(t).float() for t in transposed)
+                else:
+                    minibatch_obs_tensor = th.cat(minibatch_obs_tensors).float()
+                minibatch_value_preds_tensor = self.agent.critic(
+                    minibatch_obs_tensor
+                ).flatten()
+                minibatch_value_preds = (
+                    minibatch_value_preds_tensor.detach().cpu().numpy()
+                )
+                minibatch_next_value_preds = minibatch_value_preds[
+                    next_value_pred_indices
+                ]
+                minibatch_dones = np.concatenate(minibatch_dones_list)
+                minibatch_rewards = np.concatenate(minibatch_rewards_list)
+                minibatch_log_probs_tensor = th.cat(minibatch_log_probs_tensors)
+                # We want to use the next value pred for a time step only if the
+                # done flag for the time step is 2 (this means the episode was truncated and not
+                # terminated at the state resulting from having taken the action)
+                # or the done flag for the time step is 0 (this means the episode was neither
+                # truncated nor terminated at the state resulting from having taken the action)
+                step_non_terminating = (minibatch_dones != 1) * (minibatch_dones != 3)
+                # Since there are multiple trajectories in one array here, we want to ensure
+                # that the gae lambda from the start of one trajectory isn't used
+                # at the end of the next trajectory. We want to use the last gae lambda value
+                # only if the done flag for the time step is 0
+                step_non_done = minibatch_dones == 0
+                advantages = self._calculate_advantages_numba(
+                    minibatch_rewards,
+                    minibatch_value_preds,
+                    minibatch_next_value_preds,
+                    step_non_terminating,
+                    step_non_done,
+                    self.gamma,
+                    self.gae_lambda,
+                )
+                minibatch_advantages_tensor = th.from_numpy(advantages).to(self.device)
+                minibatch_returns_tensor = (
+                    minibatch_advantages_tensor + minibatch_value_preds_tensor.detach()
+                )
+                minibatch_actions_tensor = th.cat(minibatch_actions_tensors).to(
                     self.device
                 )
-                rewards = np.stack(buffer.rewards)
-                dones = np.stack(buffer.dones)
-                learnable_mask = np.stack(buffer.learnable)
-
-                batch_obs_tensors.append(obs_tensor)
-                batch_actions_tensors.append(actions_tensor)
-                batch_log_probs_tensors.append(log_probs_tensor)
-                batch_rewards_list.append(rewards.astype(np.float32))
-                batch_dones_list.append(dones)
-                batch_learnable_mask_list.append(learnable_mask)
-                # Explained below
-                next_value_pred_indices += [
-                    trajectory_batch_cur_timesteps + idx for idx in range(1, buf_size)
-                ]
-                next_value_pred_indices.append(next_value_pred_indices[-1])
-                trajectory_batch_cur_timesteps += buf_size
-            # A time step is a tuple where, for a given state:
-            # - the obs is constructed from the state
-            # - the action is the result of the obs
-            # - the reward is the reward from the state after having taken the action
-            # - the done is the result of the termination / truncation conditions on the state after having taken the action
-            # If the next time step is terminated, then there is no action taken on the next time step.
-            # We don't use the value function, instead we just use zero as the expected returns for the next state
-            # Otherwise, we do use it.
-            # When the next time step is terminated or truncated, *we don't have that observation*.
-            # There is no time step in here that includes that observation.
-            # The advantages calculation wants the value function's result for the following timestep,
-            # including for the last time step we have.
-            # For a given time step, the value prediction we want to use for it is the
-            # value prediction for the next observation. We don't have the last observation,
-            # so the best we can do is just use the value prediction for the last time step we have
-            # twice.
-            # We only want to use the last value prediction in a trajectory if the trajectory was
-            # truncated anyway, so the impact of this is pretty negligible.
-
-            # ---------- START BATCH QUANTITY DEFINITIONS ----------
-            if obs_is_tuple:
-                transposed = zip(*batch_obs_tensors)
-                batch_obs_tensor = tuple(th.cat(t).float() for t in transposed)
-            else:
-                batch_obs_tensor = th.cat(batch_obs_tensors).float()
-            batch_value_preds_tensor = self.agent.critic(batch_obs_tensor).flatten()
-            batch_value_preds = batch_value_preds_tensor.detach().cpu().numpy()
-            batch_next_value_preds = batch_value_preds[next_value_pred_indices]
-            batch_dones = np.concatenate(batch_dones_list)
-            batch_rewards = np.concatenate(batch_rewards_list)
-            batch_log_probs_tensor = th.cat(batch_log_probs_tensors)
-            # We want to use the next value pred for a time step only if the
-            # done flag for the time step is 2 (this means the episode was truncated and not
-            # terminated at the state resulting from having taken the action)
-            # or the done flag for the time step is 0 (this means the episode was neither
-            # truncated nor terminated at the state resulting from having taken the action)
-            step_non_terminating = (batch_dones != 1) * (batch_dones != 3)
-            # Since there are multiple trajectories in one array here, we want to ensure
-            # that the gae lambda from the start of one trajectory isn't used
-            # at the end of the next trajectory. We want to use the last gae lambda value
-            # only if the done flag for the time step is 0
-            step_non_done = batch_dones == 0
-            advantages = self._calculate_advantages_numba(
-                batch_rewards,
-                batch_value_preds,
-                batch_next_value_preds,
-                step_non_terminating,
-                step_non_done,
-                self.gamma,
-                self.gae_lambda,
-            )
-            batch_advantages_tensor = th.from_numpy(advantages).to(self.device)
-            batch_returns_tensor = (
-                batch_advantages_tensor + batch_value_preds_tensor.detach()
-            )
-            batch_actions_tensor = th.cat(batch_actions_tensors).to(self.device)
-            if self.is_selector and self.enable_ep_action_dist_calcs:
-                cur_policy_trajectories_log_probs = []
-                cur_policy_trajectories_entropy = []
-                cur_policy_trajectories_step_entropy = []
-                for obs_tensor, actions_tensor in zip(
-                        batch_obs_tensors, batch_actions_tensors
-                ):
-                    cur_policy_trajectory_log_probs, cur_policy_trajectory_entropy, cur_policy_trajectory_step_entropy = (
-                        self.evaluate_actions_selector(obs_tensor, actions_tensor)
-                    )
-                    cur_policy_trajectories_log_probs.append(
-                        cur_policy_trajectory_log_probs
-                    )
-                    cur_policy_trajectories_entropy.append(
-                        cur_policy_trajectory_entropy
-                    )
-                    cur_policy_trajectories_step_entropy.append(
-                        cur_policy_trajectory_step_entropy
-                    )
-                batch_cur_policy_log_probs_tensor = th.cat(
-                    cur_policy_trajectories_log_probs
-                )
-                batch_cur_policy_entropy_tensor = th.cat(
-                    cur_policy_trajectories_entropy
-                )
-                batch_cur_policy_step_entropy_tensor = th.cat(
-                    cur_policy_trajectories_step_entropy
-                )
-            else:
-                (
-                    batch_cur_policy_log_probs_tensor,
-                    batch_cur_policy_entropy_tensor,
-                    batch_dist,
-                ) = self.evaluate_actions(batch_obs_tensor, batch_actions_tensor)
-            # ---------- END BATCH QUANTITY DEFINITIONS ----------
-
-            ret = batch_returns_tensor
-            old_log_prob = batch_log_probs_tensor
-            log_prob = batch_cur_policy_log_probs_tensor
-            entropy = -th.mean(batch_cur_policy_entropy_tensor)
-            entropy_step = -th.mean(batch_cur_policy_step_entropy_tensor)
-            diff_log_prob = log_prob - old_log_prob
-            # stabilize the ratio for small log prob
-            ratio = torch.where(
-                diff_log_prob.abs() < 0.00005,
-                1 + diff_log_prob,
-                torch.exp(diff_log_prob),
-            )
-            if self.extra_prints:
-                print(
-                    f"ratio.min is {ratio.min()}  max is {ratio.max()}  mean is {ratio.mean()}"
-                )
-            values_pred = batch_value_preds_tensor
-            values_pred = th.squeeze(values_pred)
-            adv = batch_advantages_tensor
-            adv = (adv - th.mean(adv)) / (th.std(adv) + 1e-8)
-
-            # clipped surrogate loss
-            policy_loss_1 = adv * ratio
-            low_side = 1 - self.clip_range
-            policy_loss_2 = adv * th.clamp(ratio, low_side, 1 / low_side)
-            if self.extra_prints:
-                print(
-                    f"Policy_loss_1: mean: {policy_loss_1.mean()} min: {policy_loss_1.min()} max: {policy_loss_1.max()}"
-                )
-                print(
-                    f"Policy_loss_2: mean: {policy_loss_2.mean()} min: {policy_loss_2.min()} max: {policy_loss_2.max()}"
-                )
-            policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
-
-            # **If we want value clipping, add it here**
-            value_loss = F.mse_loss(ret, values_pred)
-
-            entropy_loss = entropy
-
-            kl_loss = th.as_tensor(0, dtype=th.float32, device=self.device)
-            if self.kl_models_weights is not None:
-                for k, (model, kl_coef, half_life) in enumerate(self.kl_models_weights):
-                    if half_life is not None:
-                        kl_coef *= 0.5 ** (self.total_steps / half_life)
-                    with torch.no_grad():
-                        batch_dist_other = model.get_action_distribution(
-                            batch_obs_tensor
+                if self.is_selector and self.enable_ep_action_dist_calcs:
+                    cur_policy_trajectories_log_probs = []
+                    cur_policy_trajectories_entropy = []
+                    cur_policy_trajectories_step_entropy = []
+                    for obs_tensor, actions_tensor in zip(
+                        minibatch_obs_tensors, minibatch_actions_tensors
+                    ):
+                        (
+                            cur_policy_trajectory_log_probs,
+                            cur_policy_trajectory_entropy,
+                            cur_policy_trajectory_step_entropy,
+                        ) = self.evaluate_actions_selector(obs_tensor, actions_tensor)
+                        cur_policy_trajectories_log_probs.append(
+                            cur_policy_trajectory_log_probs
                         )
-                    batch_div = kl_divergence(batch_dist_other, batch_dist).mean()
-                    tot_kl_other_models[k] += batch_div
-                    tot_kl_coeffs[k] = kl_coef
-                    kl_loss += kl_coef * batch_div
-
-            loss = (
-                policy_loss
-                + self.ent_coef * entropy_loss
-                + self.vf_coef * value_loss
-                + kl_loss
-            ) * (trajectory_batch_cur_timesteps / self.batch_size)
-
-            if not torch.isfinite(loss).all():
-                print("Non-finite loss, skipping", n)
-                print("\tPolicy loss:", policy_loss)
-                print("\tEntropy loss:", entropy_loss)
-                print("\tValue loss:", value_loss)
-                print("\tTotal loss:", loss)
-                print("\tRatio:", ratio)
-                print("\tAdv:", adv)
-                print("\tLog prob:", log_prob)
-                print("\tOld log prob:", old_log_prob)
-                print("\tEntropy:", entropy)
-                print(
-                    "\tActor has inf:",
-                    any(not p.isfinite().all() for p in self.agent.actor.parameters()),
-                )
-                print(
-                    "\tCritic has inf:",
-                    any(not p.isfinite().all() for p in self.agent.critic.parameters()),
-                )
-                print("\tReward as inf:", not np.isfinite(ep_rewards).all())
-                if obs_is_tuple:
-                    for j in range(len(batch_obs_tensor)):
-                        print(
-                            f"\tObs[{j}] has inf:",
-                            not batch_obs_tensor[j].isfinite().all(),
+                        cur_policy_trajectories_entropy.append(
+                            cur_policy_trajectory_entropy
                         )
+                        cur_policy_trajectories_step_entropy.append(
+                            cur_policy_trajectory_step_entropy
+                        )
+                    minibatch_cur_policy_log_probs_tensor = th.cat(
+                        cur_policy_trajectories_log_probs
+                    )
+                    minibatch_cur_policy_entropy_tensor = th.cat(
+                        cur_policy_trajectories_entropy
+                    )
+                    minibatch_cur_policy_step_entropy_tensor = th.cat(
+                        cur_policy_trajectories_step_entropy
+                    )
                 else:
-                    print("\tObs has inf:", not batch_obs_tensor.isfinite().all())
-                continue
+                    (
+                        minibatch_cur_policy_log_probs_tensor,
+                        minibatch_cur_policy_entropy_tensor,
+                        minibatch_dist,
+                    ) = self.evaluate_actions(
+                        minibatch_obs_tensor, minibatch_actions_tensor
+                    )
+                # ---------- END BATCH QUANTITY DEFINITIONS ----------
 
-            loss.backward()
+                ret = minibatch_returns_tensor
+                old_log_prob = minibatch_log_probs_tensor
+                log_prob = minibatch_cur_policy_log_probs_tensor
+                entropy = -th.mean(minibatch_cur_policy_entropy_tensor)
+                entropy_step = -th.mean(minibatch_cur_policy_step_entropy_tensor)
+                diff_log_prob = log_prob - old_log_prob
+                # stabilize the ratio for small log prob
+                ratio = torch.where(
+                    diff_log_prob.abs() < 0.00005,
+                    1 + diff_log_prob,
+                    torch.exp(diff_log_prob),
+                )
+                if self.extra_prints:
+                    print(
+                        f"ratio.min is {ratio.min()}  max is {ratio.max()}  mean is {ratio.mean()}"
+                    )
+                values_pred = minibatch_value_preds_tensor
+                values_pred = th.squeeze(values_pred)
+                adv = minibatch_advantages_tensor
+                adv = (adv - th.mean(adv)) / (th.std(adv) + 1e-8)
 
-            # Unbiased low variance KL div estimator from http://joschu.net/blog/kl-approx.html
-            total_kl_div += th.mean((ratio - 1) - (log_prob - old_log_prob)).item()
-            tot_loss += loss.item()
-            tot_policy_loss += policy_loss.item()
-            tot_entropy_loss += entropy_loss.item()
-            tot_step_entropy_loss += entropy_step.item()
-            tot_value_loss += value_loss.item()
-            tot_clipped += th.mean((th.abs(ratio - 1) > self.clip_range).float()).item()
-            n += 1
-            # pb.update(self.minibatch_size)
+                # clipped surrogate loss
+                policy_loss_1 = adv * ratio
+                low_side = 1 - self.clip_range
+                policy_loss_2 = adv * th.clamp(ratio, low_side, 1 / low_side)
+                if self.extra_prints:
+                    print(
+                        f"Policy_loss_1: mean: {policy_loss_1.mean()} min: {policy_loss_1.min()} max: {policy_loss_1.max()}"
+                    )
+                    print(
+                        f"Policy_loss_2: mean: {policy_loss_2.mean()} min: {policy_loss_2.min()} max: {policy_loss_2.max()}"
+                    )
+                policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
+
+                # **If we want value clipping, add it here**
+                value_loss = F.mse_loss(ret, values_pred)
+
+                entropy_loss = entropy
+
+                kl_loss = th.as_tensor(0, dtype=th.float32, device=self.device)
+                if self.kl_models_weights is not None:
+                    for k, (model, kl_coef, half_life) in enumerate(
+                        self.kl_models_weights
+                    ):
+                        if half_life is not None:
+                            kl_coef *= 0.5 ** (self.total_steps / half_life)
+                        with torch.no_grad():
+                            minibatch_dist_other = model.get_action_distribution(
+                                minibatch_obs_tensor
+                            )
+                        minibatch_div = kl_divergence(
+                            minibatch_dist_other, minibatch_dist
+                        ).mean()
+                        tot_kl_other_models[k] += minibatch_div
+                        tot_kl_coeffs[k] = kl_coef
+                        kl_loss += kl_coef * minibatch_div
+
+                loss = (
+                    policy_loss
+                    + self.ent_coef * entropy_loss
+                    + self.vf_coef * value_loss
+                    + kl_loss
+                ) * (trajectory_minibatch_cur_timesteps / self.batch_size)
+
+                if not torch.isfinite(loss).all():
+                    print("Non-finite loss, skipping", n)
+                    print("\tPolicy loss:", policy_loss)
+                    print("\tEntropy loss:", entropy_loss)
+                    print("\tValue loss:", value_loss)
+                    print("\tTotal loss:", loss)
+                    print("\tRatio:", ratio)
+                    print("\tAdv:", adv)
+                    print("\tLog prob:", log_prob)
+                    print("\tOld log prob:", old_log_prob)
+                    print("\tEntropy:", entropy)
+                    print(
+                        "\tActor has inf:",
+                        any(
+                            not p.isfinite().all()
+                            for p in self.agent.actor.parameters()
+                        ),
+                    )
+                    print(
+                        "\tCritic has inf:",
+                        any(
+                            not p.isfinite().all()
+                            for p in self.agent.critic.parameters()
+                        ),
+                    )
+                    print("\tReward as inf:", not np.isfinite(ep_rewards).all())
+                    if obs_is_tuple:
+                        for j in range(len(minibatch_obs_tensor)):
+                            print(
+                                f"\tObs[{j}] has inf:",
+                                not minibatch_obs_tensor[j].isfinite().all(),
+                            )
+                    else:
+                        print(
+                            "\tObs has inf:", not minibatch_obs_tensor.isfinite().all()
+                        )
+                    continue
+
+                loss.backward()
+
+                # Unbiased low variance KL div estimator from http://joschu.net/blog/kl-approx.html
+                total_kl_div += th.mean((ratio - 1) - (log_prob - old_log_prob)).item()
+                tot_loss += loss.item()
+                tot_policy_loss += policy_loss.item()
+                tot_entropy_loss += entropy_loss.item()
+                tot_step_entropy_loss += entropy_step.item()
+                tot_value_loss += value_loss.item()
+                tot_clipped += th.mean(
+                    (th.abs(ratio - 1) > self.clip_range).float()
+                ).item()
+                n += 1
+                # pb.update(self.minibatch_size)
 
             # Clip grad norm
             if self.max_grad_norm is not None:
