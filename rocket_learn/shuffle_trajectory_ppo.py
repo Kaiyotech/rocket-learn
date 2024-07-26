@@ -476,8 +476,7 @@ class ShuffleTrajectoryPPO:
                 )
             )[:, 0]
             entropy_tensor = th.matmul(selector_choice_probs, dist_entropy)
-            step_entropy = self.agent.actor.entropy(dist, trajectory_actions)
-        return log_prob_tensor, entropy_tensor, step_entropy
+        return log_prob_tensor, entropy_tensor, dist_entropy
 
     def evaluate_actions(self, observations, actions):
         """
