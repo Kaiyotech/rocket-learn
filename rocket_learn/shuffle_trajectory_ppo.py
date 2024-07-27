@@ -1,15 +1,8 @@
-import cProfile
-import io
 import json
 import os
-import pstats
-import random
-import sys
 import time
-from inspect import signature
 from json import JSONDecodeError
 from typing import Iterator, List, Tuple, Union
-from weakref import ref
 
 import numba
 import numpy as np
@@ -89,7 +82,7 @@ class ShuffleTrajectoryPPO:
     ):
         self.is_selector = rollout_generator.selector_skip_k is not None  # noqa
         self.enable_ep_action_dist_calcs = (
-            rollout_generator.enable_ep_action_dist_calcs
+            rollout_generator.enable_ep_action_dist_calcs  # noqa
         )  # noqa
         assert (
             minibatch_size is None
@@ -610,7 +603,7 @@ class ShuffleTrajectoryPPO:
         )
         t0 = time.perf_counter_ns()
         self.agent.optimizer.zero_grad(set_to_none=self.zero_grads_with_none)
-        n_minibatches_per_batch = self.batch_size / self.minibatch_size
+        n_minibatches_per_batch = self.batch_size // self.minibatch_size
         for _ in range(self.epochs):
             for _ in range(n_minibatches_per_batch):
                 minibatch_obs_tensors = []
