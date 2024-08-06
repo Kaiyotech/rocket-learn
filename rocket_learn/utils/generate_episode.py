@@ -249,7 +249,7 @@ def generate_episode(
 
                     # need to remove the prev model actions and add the prev actions
                     obs[0][:, 37:45] = np.array(actual_prev_actions)
-                    obs = (obs[0][:, :-6], obs[1])
+                    obs = (obs[0][:, :-num_submodels], obs[1])
                     actions = selector_parser.parse_actions(
                         action_indices, last_state, obs
                     )
@@ -290,10 +290,10 @@ def generate_episode(
                             # remove model actions (if removed by selector) and add previous actions and put back mirror
                             if selector:
                                 obs[0][:, 37:45] = np.array(actual_prev_actions[index])
-                                obs = (obs[0][:, :-6], obs[1], mirror[index])
+                                obs = (obs[0][:, :-num_submodels], obs[1], mirror[index])
                             # gonna be selector obs, but no selector is present
                             elif selector_eval_only_others:
-                                obs = (obs[0][:, :-6], obs[1], mirror[index])
+                                obs = (obs[0][:, :-num_submodels], obs[1], mirror[index])
                             else:
                                 obs = (obs[0], obs[1], mirror[index])
                             actions = policy.act(obs, last_state, index)
@@ -330,7 +330,7 @@ def generate_episode(
 
                             # need to remove the prev model actions and add the prev actions
                             obs[0][:, 37:45] = np.array(actual_prev_actions[index])
-                            obs = (obs[0][:, :-6], obs[1])
+                            obs = (obs[0][:, :-num_submodels], obs[1])
                             actions = selector_parser.parse_actions(
                                 action_indices, last_state, obs
                             )
