@@ -44,6 +44,7 @@ def generate_episode(
     selector_skip_probability_table=None,
     enable_ep_action_dist_calcs=False,
     ngp_action_parser=None,
+    num_submodels=None,
 ) -> (List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
@@ -142,7 +143,6 @@ def generate_episode(
         data_ticks_passed = 30
         gather_data_ticks = random.uniform(15, 45)
     # fh_pickle = open("testing_state.pkl", 'wb')
-    num_submodels = None
     for i, value in enumerate(latest_policy_indices):
         if value == 1 and policies[i].shape[0] < 50:
             num_submodels = policies[i].shape[0]

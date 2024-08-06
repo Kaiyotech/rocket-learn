@@ -108,7 +108,9 @@ class RedisRolloutWorker:
         selector_skip_probability_table_size=None,
         enable_ep_action_dist_calcs=False,
         ngp_action_parser=None,
+        num_submodels=None,
     ):
+        self.num_submodels = num_submodels
         # TODO model or config+params so workers can recreate just from redis connection?
         self.redis = redis
         self.name = name
@@ -516,6 +518,7 @@ class RedisRolloutWorker:
                     selector=self.selector,
                     selector_parser=self.selector_parser,
                     selector_skip_k=selector_skips,
+                    num_submodels=self.num_submodels,
                     # eval_setter=self.eval_setter,
                 )
                 rollouts = []
