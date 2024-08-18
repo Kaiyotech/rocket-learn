@@ -310,7 +310,7 @@ class RedisRolloutWorker:
             worker_string = ''.join(random.choices(string.ascii_lowercase, k=16))
             self.worker_filename = os.path.join(".", "eval_results", f"worker_{worker_string}.csv")
             fh = open(self.worker_filename, 'w')
-            fh.write("Timestamp,Mode,Blue,Orange,Result\n")
+            fh.write("Timestamp,Mode,Blue,Blue_mu,Blue_sigma,Orange,Orange_mu,Orange_sigma,Result\n")
             fh.close()
 
     @functools.lru_cache(maxsize=8)
@@ -536,11 +536,14 @@ class RedisRolloutWorker:
                 print("Evaluation finished, goal differential:", result)
                 if self.save_eval_results:
                     fh = open(self.worker_filename, 'a')
+                    mid = len(versions) // 2
                     team_0 = versions[0]
                     team_1 = versions[len(versions) // 2]
                     # "Mode,Blue,Orange,Result"
                     timestamp = time.time()
-                    to_print = f"{timestamp},{blue}v{orange},{team_0},{team_1},{result}\n"
+                    rating_blue = f"{ratings[0].mu:.2f},{ratings[0].sigma:.2f}"
+                    rating_orange = f"{ratings[mid].mu:.2f},{ratings[mid].sigma:.2f}"
+                    to_print = f"{timestamp},{blue}v{orange},{team_0},{rating_blue},{team_1}, {rating_orange},{result}\n"
                     fh.write(to_print)
                     fh.close()
                 print()
