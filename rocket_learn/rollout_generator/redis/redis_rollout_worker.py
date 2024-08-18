@@ -2,7 +2,9 @@ import copy
 import functools
 import itertools
 import os
+import random
 import sqlite3 as sql
+import string
 import time
 from threading import Thread
 from uuid import uuid4
@@ -109,6 +111,7 @@ class RedisRolloutWorker:
         enable_ep_action_dist_calcs=False,
         ngp_action_parser=None,
         num_submodels=None,
+        save_evals_results=False,
     ):
         self.num_submodels = num_submodels
         # TODO model or config+params so workers can recreate just from redis connection?
@@ -301,6 +304,14 @@ class RedisRolloutWorker:
         # self.rust_sim = True
         self.total_steps_generated = 0
         self.live_progress = live_progress
+
+        self.save_eval_results = save_evals_results
+        if self.save_eval_results:
+            worker_string = ''.join(random.choices(string.ascii_lowercase, k=16))
+            self.worker_filename = os.path.join(".", "eval_results", f"worker_{worker_string}.csv")
+            fh = open(self.worker_filename, 'w')
+            fh.write("Mode,Blue,Orange,Result\n")
+            fh.close()
 
     @functools.lru_cache(maxsize=8)
     def _get_past_model(self, version):
@@ -523,6 +534,14 @@ class RedisRolloutWorker:
                 )
                 rollouts = []
                 print("Evaluation finished, goal differential:", result)
+                if self.save_eval_results:
+                    fh = open(self.worker_filename, 'a')
+                    team_0 = versions[0]
+                    team_1 = versions[len(versions) // 2]
+                    # "Mode,Blue,Orange,Result"
+                    to_print = f"{blue}v{orange},{team_0},{team_1},{result}\n"
+                    fh.write(to_print)
+                    fh.close()
                 print()
             else:
                 if not self.streamer_mode:
