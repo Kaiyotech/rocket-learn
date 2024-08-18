@@ -310,7 +310,7 @@ class RedisRolloutWorker:
             worker_string = ''.join(random.choices(string.ascii_lowercase, k=16))
             self.worker_filename = os.path.join(".", "eval_results", f"worker_{worker_string}.csv")
             fh = open(self.worker_filename, 'w')
-            fh.write("Mode,Blue,Orange,Result\n")
+            fh.write("Timestamp,Mode,Blue,Orange,Result\n")
             fh.close()
 
     @functools.lru_cache(maxsize=8)
@@ -539,7 +539,8 @@ class RedisRolloutWorker:
                     team_0 = versions[0]
                     team_1 = versions[len(versions) // 2]
                     # "Mode,Blue,Orange,Result"
-                    to_print = f"{blue}v{orange},{team_0},{team_1},{result}\n"
+                    timestamp = time.time()
+                    to_print = f"{timestamp},{blue}v{orange},{team_0},{team_1},{result}\n"
                     fh.write(to_print)
                     fh.close()
                 print()
