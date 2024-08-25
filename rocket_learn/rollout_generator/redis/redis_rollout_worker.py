@@ -310,7 +310,7 @@ class RedisRolloutWorker:
             worker_string = ''.join(random.choices(string.ascii_lowercase, k=16))
             self.worker_filename = os.path.join(".", "eval_results", f"worker_{worker_string}.csv")
             fh = open(self.worker_filename, 'w')
-            fh.write("Timestamp,Mode,Blue,Blue_mu,Blue_sigma,Orange,Orange_mu,Orange_sigma,Result\n")
+            fh.write("Timestamp,Mode,Blue,Blue_mu,Blue_sigma,Orange,Orange_mu,Orange_sigma,Result,Blue_Score,Orange_Score\n")
             fh.close()
 
     @functools.lru_cache(maxsize=8)
@@ -518,7 +518,7 @@ class RedisRolloutWorker:
 
             if evaluate and not self.streamer_mode and self.human_agent is None:
                 print("EVALUATION GAME\n" + table_str)
-                result = rocket_learn.utils.generate_episode.generate_episode(
+                result, scores = rocket_learn.utils.generate_episode.generate_episode(
                     self.env,
                     agents,
                     evaluate=True,
@@ -543,7 +543,7 @@ class RedisRolloutWorker:
                     timestamp = time.time()
                     rating_blue = f"{ratings[0].mu:.2f},{ratings[0].sigma:.2f}"
                     rating_orange = f"{ratings[mid].mu:.2f},{ratings[mid].sigma:.2f}"
-                    to_print = f"{timestamp},{blue}v{orange},{team_0},{rating_blue},{team_1}, {rating_orange},{result}\n"
+                    to_print = f"{timestamp},{blue}v{orange},{team_0},{rating_blue},{team_1}, {rating_orange},{result},{scores[0]},{scores[1]}\n"
                     fh.write(to_print)
                     fh.close()
                 print()

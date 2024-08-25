@@ -571,7 +571,8 @@ def generate_episode(
             env._match._state_setter = state_setter  # noqa
         env._match._terminal_conditions = terminals  # noqa
         env._match._reward_fn = reward  # noqa
-        return result
+        scores = (info["state"].blue_score, info["state"].orange_score)
+        return result, scores
 
     if progress is not None:
         progress.close()
