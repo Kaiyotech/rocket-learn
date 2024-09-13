@@ -272,7 +272,7 @@ class RedisRolloutWorker:
             self.env = opti.GymWrapper(
                 tick_skip=tick_skip,
                 team_size=team_size,
-                gravity=1.0,
+                gravity=649.2 / 650,
                 self_play=spawn_opponents,
                 boost_consumption_default=1.0,
                 send_gamestate=send_gamestates,
