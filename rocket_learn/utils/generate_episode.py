@@ -45,6 +45,7 @@ def generate_episode(
     enable_ep_action_dist_calcs=False,
     ngp_action_parser=None,
     num_submodels=None,
+    punish_selector_reward=None,
 ) -> (List[ExperienceBuffer], int):
     """
     create experience buffer data by interacting with the environment(s)
@@ -415,6 +416,11 @@ def generate_episode(
                         data_ticks_passed = 0
                         gather_data_ticks = random.uniform(15, 45)
                         to_save.append(gamestate_to_replay_array(info["state"]))
+
+            # modify rewards for selector punish
+            if selector and punish_selector_reward is not None and rust_sim:
+                rewards = punish_selector_reward.add_selector_rewards(rewards, info["state"], last_model_action, latest_policy_indices)
+
             if selector and not evaluate and enable_ep_action_dist_calcs:
                 steps_since_episode_start += 1
 

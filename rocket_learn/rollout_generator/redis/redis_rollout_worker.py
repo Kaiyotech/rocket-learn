@@ -112,6 +112,7 @@ class RedisRolloutWorker:
         ngp_action_parser=None,
         num_submodels=None,
         save_evals_results=False,
+        punish_selector_reward=None,
     ):
         self.num_submodels = num_submodels
         # TODO model or config+params so workers can recreate just from redis connection?
@@ -119,6 +120,7 @@ class RedisRolloutWorker:
         self.name = name
         self.rust_sim = rust_sim
         self.ngp_reward = ngp_reward
+        self.punish_selector_reward = punish_selector_reward
         self.ngp_action_parser = ngp_action_parser
         if ngp_reward is not None:
             assert ngp_action_parser is not None, "Required to provide parser to get actual 8 actions to feed ngp"
@@ -573,6 +575,7 @@ class RedisRolloutWorker:
                             selector_skip_probability_table=self.selector_skip_probability_table,
                             enable_ep_action_dist_calcs=self.enable_ep_action_dist_calcs,
                             ngp_action_parser=self.ngp_action_parser,
+                            punish_selector_reward=self.punish_selector_reward
                         )
                     )
 
