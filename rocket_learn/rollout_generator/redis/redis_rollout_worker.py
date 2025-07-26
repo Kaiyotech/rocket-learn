@@ -440,9 +440,6 @@ class RedisRolloutWorker:
             elif self.match.agents == 1:
                 blue = 1
                 orange = 0
-            elif self.match._spawn_opponents is False:  # noqa
-                blue = self.match.agents
-                orange = 0
             else:
                 blue = orange = self.match.agents // 2
             n_new = 0

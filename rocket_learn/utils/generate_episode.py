@@ -5,7 +5,7 @@ import string
 from typing import List
 
 import numpy as np
-import pretrained_agents.Opti.Opti_submodel
+# import pretrained_agents.Opti.Opti_submodel
 import torch
 from rlgym_sim.gym import Gym
 from rlgym_sim.utils.reward_functions.common_rewards import ConstantReward
@@ -285,8 +285,8 @@ def generate_episode(
                     if isinstance(policy, HardcodedAgent):
                         actions = None
                         # No reason to build another obs, just use the rust one that's already built
-                        if isinstance(
-                            policy, pretrained_agents.Opti.Opti_submodel.Submodel
+                        if isinstance(policy, float
+                            # policy, pretrained_agents.Opti.Opti_submodel.Submodel
                         ):
                             # remove model actions (if removed by selector) and add previous actions and put back mirror
                             if selector:

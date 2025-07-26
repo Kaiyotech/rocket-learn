@@ -1,6 +1,6 @@
 from typing import Iterator
 
-import rlgym_sim
+import rlgym
 from rocket_learn.agent.policy import Policy
 from rocket_learn.experience_buffer import ExperienceBuffer
 from rocket_learn.rollout_generator.base_rollout_generator import BaseRolloutGenerator
